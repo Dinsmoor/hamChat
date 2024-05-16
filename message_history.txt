@@ -1,0 +1,3 @@
+/home/tyler/ham/ardopcf/client_ardop.py added to buffer, 6422 bytes
+/home/tyler/ham/ardopcf/send_read_ardop_buffer.py added to buffer, 853 bytes
+KJ7FYM: 
