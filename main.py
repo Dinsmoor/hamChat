@@ -1,4 +1,3 @@
-import threading
 import tkinter as tk
 import json
 from ARDOPCF import ARDOPCF
@@ -30,7 +29,7 @@ class ARDOPCFGUI(tk.Tk):
         """
         tk.Tk.__init__(self)
         self.version = '0.1'
-        self.title("ARDOP Chat")
+        self.title("ARDOPCF Chat")
         self.resizable(True, True)
         self.geometry("500x600")
         self.settings = {
@@ -40,8 +39,10 @@ class ARDOPCFGUI(tk.Tk):
             'fec_repeats': 1,
             'use_message_history': 1
         }
-        self.ardop = ARDOPCF(self)
+        
+        # hopefully not a race condition here :cringe:
         self.plugins = PluginManager(host_interface=self, plugin_folder='ARDOPCF_Plugins')
+        self.ardop = ARDOPCF(host_interface=self)
         try:
             self._load_settings_from_file()
             self.ardop.init_tnc()
@@ -158,14 +159,11 @@ class ARDOPCFGUI(tk.Tk):
     def send_chat_message(self):
         message = self.entry.get()
         message = f"{self.settings['callsign']}:chat:{self.version}:BEGIN:{message}"
-        if self.ardop.append_bytes_to_buffer(message.encode()):
-            transmit_thread = threading.Thread(target=self.ardop.transmit_buffer)
-            transmit_thread.start()
-        else:
-            self.write_message("Could not send message, file too large or other error.")
+        self.ardop.append_bytes_to_buffer(message.encode())
+        self.ardop.transmit_buffer()
 
         self.entry.delete(0, tk.END)
-        self.write_message(message)
+        self.write_message(f"{message.split(':')[0]}: {message.split(':')[4]}")
         self.send_button['state'] = 'disabled'
         self.save_message_history()
     
@@ -186,8 +184,9 @@ class ARDOPCFGUI(tk.Tk):
                     if handler in header.split(b':')[1].decode():
                         remote_plugin_version = header.split(b':')[2].decode()
                         if plugin.definition['version'] != remote_plugin_version:
-                            self.display_warning_box(f"Local plugin {plugin.__class__.__name__} has version mismatch with remote plugin {remote_plugin_version}.\n/
-                                                     Data may not be handled correctly.")
+                            self.display_warning_box(f'''Local plugin {plugin.__class__.__name__} has version mismatch
+                                                      with remote plugin {remote_plugin_version}.\n 
+                                                     Data may not be handled correctly.''')
                         # we have a plugin that can handle this data, it will do
                         # whatever in this interface it needs to do without further handling here.
                         plugin.on_data_received({'header': header, 'payload': payload})

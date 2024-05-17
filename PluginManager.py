@@ -3,10 +3,9 @@ import os
 import importlib.util
 # assist with type hinting
 from ARDOPCFPlugin import ARDOPCFPlugin
-from .main import ARDOPCFGUI
 
 class PluginManager:
-    def __init__(self, host_interface=ARDOPCFGUI, plugin_folder='ARDOPCF_Plugins'):
+    def __init__(self, host_interface, plugin_folder='ARDOPCF_Plugins'):
         '''This class is used to manage the plugins that are loaded into the ARDOP Chat application.'''
 
         # contains like: [ARDOPCFPluginCore, ARDOPCFPluginFileTransfer]
@@ -27,6 +26,7 @@ class PluginManager:
             print("You may encounter unexpected behavior.")
             print(f"Unmet dependencies: {unmet}")
             self.host_interface.display_warning_box(f"Plugin dependencies not satisfied: {unmet}")
+        self.list_plugins()
 
     def load_plugins(self, plugin_folder):
         # These variables could use some renaming to make it more clear
@@ -37,7 +37,7 @@ class PluginManager:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 for attr_name in dir(module):
-                    if attr_name.startswith('ARDOPCFPlugin'):
+                    if attr_name.startswith('ARDOPCFPlugin') and attr_name != 'ARDOPCFPlugin':
                         attr = getattr(module, attr_name)
                         if isinstance(attr, type) and issubclass(attr, ARDOPCFPlugin):
                             valid_plugin_object = attr(host_interface=self.host_interface)
@@ -52,7 +52,6 @@ class PluginManager:
                     print(f"Dependency NOT met for {plugin.__class__.__name__}: {dependency.get('plugin')} {dependency.get('version')}")
                     self.unmet_dependencies.append(f"{dependency.get('plugin')} {dependency.get('version')}")
                     return False
-                print(f"Dependency met for {plugin.__class__.__name__}: {dependency.get('plugin')} {dependency.get('version')}")
         return True
     
     def is_dependency_met(self, plugin_name: str, version: str):
@@ -64,8 +63,9 @@ class PluginManager:
         return True
 
     def list_plugins(self):
+        print(f"{len(self.plugins)} Loaded plugins:")
         for plugin in self.plugins:
-            print(plugin.__class__.__name__)
+            print(f"{plugin.__class__.__name__[13:]} version {plugin.definition.get('version')} by {plugin.definition.get('author')}")
             print(plugin.info)
 
     def on_data_received(self, data: dict):

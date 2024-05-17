@@ -1,16 +1,14 @@
 # inherits from ARDOPCFPlugin
-from ..ARDOPCFPlugin import ARDOPCFPlugin
-# import to assist with type hinting
-from ..main import ARDOPCFGUI
+from ARDOPCFPlugin import ARDOPCFPlugin
 import tkinter as tk
 from tkinter import filedialog
 
 
 class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
-    def __init__(self, host_interface=ARDOPCFGUI):
+    def __init__(self, host_interface: object):
         super().__init__(host_interface)
-        self.info = """
-        This is the main plugin for the ARDOP Chat application.
+        self.info = f"""
+        This is a demo plugin for the ARDOP Chat application.
         It allows for simple file transfer between two ARDOP Chat clients.
         """
         self.definition = {
@@ -38,15 +36,18 @@ class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
     def on_ui_create_widgets(self):
         # button to add a file to the buffer
         # not sure if this will work.
-        self.host_interface.add_file_button = tk.Button(self, text="Add File", command=self._select_file)
-        self.host_interface.add_file_button.pack()
+        self.add_file_button = tk.Button(self.host_interface, text="Add File", command=self._select_file)
+        self.add_file_button.pack()
+        self.send_file_button = tk.Button(self.host_interface, text="Send File", command=self.host_interface.ardop.transmit_buffer)
+        self.send_file_button.pack()
         
     def _select_file(self):
         filename = filedialog.askopenfilename()
         self._load_file_to_buffer(filename)
         file_length = len(open(filename, 'rb').read())
         self.host_interface.write_message(f"{filename} added to buffer, {file_length} bytes")
-        self.host_interface.send_button['state'] = 'normal'
+        self.host_interface.send_button['state'] = 'disabled'
+        self.host_interface.entry['state'] = 'disabled'
         self.host_interface.save_message_history()
     
     def _save_file_to_disk(self, data: bytes, suggested_filename: str = None):

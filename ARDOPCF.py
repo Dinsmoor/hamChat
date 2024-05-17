@@ -7,7 +7,7 @@ import sys
 
 class ARDOPCF:
     def __init__(self, host_interface):
-        self.kill = False
+        self.stop_event = threading.Event()
         self.command_response_history = []
         self.host_interface = host_interface
 
@@ -75,8 +75,8 @@ class ARDOPCF:
 
         # initialize the ARDOPC client
         self.init_tnc()
-        self.listen_for_command_responses_thread = threading.Thread(target=self.listen_for_command_responses)
-        self.listen_for_command_responses_thread.start()
+        self.command_listen = threading.Thread(target=self.listen_for_command_responses)
+        self.command_listen.start()
 
     def init_tnc(self):
         self.cmd_response(command='INITIALIZE')
@@ -99,15 +99,15 @@ class ARDOPCF:
 
     def key_transmitter(self):
         if self.sock_rigctld:
-            print("PTT ON->rigctld")
             self.sock_rigctld.sendall(b'T 1\n')
+            self.host_interface.plugins.on_key_transmitter()
         else:
             print("Cannot key transmitter, rigctld not connected")
     
     def unkey_transmitter(self):
         if self.sock_rigctld:
-            print("PTT OFF->rigctld")
             self.sock_rigctld.sendall(b'T 0\n')
+            self.host_interface.plugins.on_unkey_transmitter()
         else:
             print("Cannot unkey transmitter, rigctld not connected")
     
@@ -139,10 +139,14 @@ class ARDOPCF:
         self.sock_data.sendall(data)
 
     def transmit_buffer(self):
+        # twice! because the TNC is a little finicky on first transmit
         self.cmd_response(command='FECSEND TRUE', wait=False)
+        self.cmd_response(command='FECSEND TRUE', wait=False)
+        self.host_interface.entry['state'] = 'normal'
 
     def clear_buffer(self):
         self.cmd_response(command='PURGEBUFFER', wait=False)
+        self.host_interface.entry['state'] = 'normal'
 
     def recieve_from_data_buffer(self) -> bytes:
         # The TNC decodes audio, if there is a valid packet,
@@ -173,6 +177,8 @@ class ARDOPCF:
                 self.__send_cmd(command)
             if wait:
                 timeout = None
+            else:
+                return(None)
             try:
                 if self.sock_cmd in select.select([self.sock_cmd], [], [], timeout)[0]:
                     response = self.sock_cmd.recv(1024).decode() # all responses from the TNC are ASCII
@@ -182,16 +188,14 @@ class ARDOPCF:
     
     def listen_for_command_responses(self):
         # this is our main loop for handling responses from the TNC
-        while True:
-            if self.kill:
-                return
+        while not self.stop_event.is_set():
             response = self.cmd_response(wait=True)
             self.command_response_history.append(response)
 
             try:
                 for entry in self.command_response_history:
                     #might be a problem if a plugin starts blocking the main thread
-                    self.host_interface.plugins.on_command_received(entry)
+                    #self.host_interface.plugins.on_command_received(entry)
                     if ('PTT TRUE' in entry) or ('T T' in entry):
                         self.state['ptt'] = True
                         self.key_transmitter()
@@ -224,7 +228,7 @@ class ARDOPCF:
                         self.state['protocol_mode'] = entry.split()[2]
                         self.command_response_history.remove(entry)
                     else:
-                        print(f"Unhandled command response: {entry}")
+                        #print(f"Unhandled command response: {entry}")
                         self.command_response_history.remove(entry)
             except TypeError:
                 # this is a catch for the case where the command_response_history is None
@@ -233,10 +237,15 @@ class ARDOPCF:
 
     def close_all(self):
         print("Halting transmission, closing all sockets, and exiting")
-        self.kill = True
         self.unkey_transmitter()
+        self.stop_event.set()
+        # this is a hack to get the command_response thread to exit
+        # (it's blocking on a recv call until it gets a response from the TNC)
+        self.cmd_response(command='STATE', wait=False)
+        self.command_listen.join()
         self.sock_cmd.close()
         self.sock_data.close()
         if self.sock_rigctld:
             self.sock_rigctld.close()
+        
         sys.exit()

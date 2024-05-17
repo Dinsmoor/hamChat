@@ -1,3 +1,8 @@
-/home/tyler/ham/ardopcf/client_ardop.py added to buffer, 6422 bytes
-/home/tyler/ham/ardopcf/send_read_ardop_buffer.py added to buffer, 853 bytes
-KJ7FYM: 
+KJ7FYM: test
+KJ7FYM: Again!
+KJ7FYM: Why this time?
+Client Settings Updated
+/home/tyler/ham/ardop_fec_chat/README.md added to buffer, 1876 bytes
+/home/tyler/ham/ardop_fec_chat/README.md added to buffer, 1876 bytes
+/home/tyler/ham/ardop_fec_chat/README.md added to buffer, 1876 bytes
+/home/tyler/ham/ardop_fec_chat/README.md added to buffer, 1876 bytes

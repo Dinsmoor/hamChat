@@ -1,8 +1,5 @@
-# import mainly to assist with type hinting
-from .main import ARDOPCFGUI
-
 class ARDOPCFPlugin:
-    def __init__(self, host_interface=ARDOPCFGUI):
+    def __init__(self, host_interface):
         """ This is the base class for all ARDOP Chat plugins."""
 
         self.info = """
@@ -34,8 +31,6 @@ class ARDOPCFPlugin:
             'provides': self.__class__.__name__,
             'depends_on': [{'plugin': 'PluginName', 'version': '0.1'}],
         }
-
-        print(f"{self.definition.get("name")} loaded with version {self.definition.get("version")}")
 
     def on_data_received(self):
         '''This method is called when a data frame is received from the TNC, after removing the ARDOP header.

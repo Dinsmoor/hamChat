@@ -1,15 +1,13 @@
 # inherits from ARDOPCFPlugin
-from ..ARDOPCFPlugin import ARDOPCFPlugin
-# import to assist with type hinting
-from ..main import ARDOPCFGUI
+from ARDOPCFPlugin import ARDOPCFPlugin
 
 class ARDOPCFPluginCore(ARDOPCFPlugin):
-    def __init__(self, host_interface=ARDOPCFGUI):
+    def __init__(self, host_interface: object):
         super().__init__(host_interface)
 
-        self.info = """
-        This plugin exists to provide versioning information to other plugins.
-        When a plugin depends on this plugin's version, it depends on the version of the ARDOP Chat application.
+        self.info = f"""
+        This plugin exists to provide main application versioning information to
+        other plugins.
         """
         self.definition = {
             'author': 'Tyler Dinsmoor/K7OTR',
