@@ -1,15 +1,18 @@
 import tkinter as tk
+import threading
+import time
 import json
 from ARDOPCF import ARDOPCF
 from PluginManager import PluginManager
 
 info = """
-This application is a simple chat application that interfaces with the ARDOPC client
-the ARDOPC client is a TNC that uses the ARDOP protocol
-and is used for digital communications over any audio band, but is most commonly used
-in amateur radio for HF and VHF communications.
-It uses tkinter for the GUI and the ARDOPCF client for the TNC, and most features are
-extensible through the use of plugins.
+This application is a simple chat application that interfaces
+with the ARDOPC client the ARDOPC client is a TNC that uses the
+ARDOP protocol and is used for digital communications over any
+audio band, but is most commonly used in amateur radio for HF
+and VHF communications.
+It uses tkinter for the GUI and the ARDOPCF client for the TNC,
+and most features are extensible through the use of plugins.
 
 This application is a work in progress and is not yet complete.
 """
@@ -25,13 +28,14 @@ class ARDOPCFGUI(tk.Tk):
         Index 0: Callsign
         Index 1: Protocol Identifier
         Index 2: Protocol Version
+        Index -1: END
         All other indexes until ":BEGIN:" are reserved for a plugin to use as it sees fit.
         """
         tk.Tk.__init__(self)
         self.version = '0.1'
         self.title("ARDOPCF Chat")
         self.resizable(True, True)
-        self.geometry("500x600")
+        self.geometry("500x768")
         self.settings = {
             'callsign': 'N0CALL',
             'gridsquare': 'AA00AA',
@@ -39,6 +43,9 @@ class ARDOPCFGUI(tk.Tk):
             'fec_repeats': 1,
             'use_message_history': 1
         }
+
+        self.die = threading.Event()
+        # kill yourself.
         
         # hopefully not a race condition here :cringe:
         self.plugins = PluginManager(host_interface=self, plugin_folder='ARDOPCF_Plugins')
@@ -54,8 +61,11 @@ class ARDOPCFGUI(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.ardop.close_all)
         self.message_history = []
         
-        self.listen_for_data()
-        self.update_ui_ardop_state()
+        # these two need to be on their own threads
+        self.data_listener = threading.Thread(target=self.listen_for_data)
+        self.data_listener.start()
+        self.ui_updater = threading.Thread(target=self.update_ui_ardop_state)
+        self.ui_updater.start()
 
     def _save_settings_to_file(self):
         with open('chat_settings.json', 'w') as f:
@@ -76,20 +86,12 @@ class ARDOPCFGUI(tk.Tk):
             self.message_history = f.readlines()
 
     def create_widgets(self):
-        # Simple chat-related functions are integral to the program.
-        # this progam should always retain chat functions.
-
-        # this is the main chat window and will return the messages from the ARDOPC client
-        # from the receive buffer. We do not enter commands here, only messages.
         self.message_box = tk.Text(self, width=60, height=20)
-        # make the message box scrollable
         self.scrollbar = tk.Scrollbar(self, command=self.message_box.yview)
         self.message_box.config(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        # make the message box word wrap
         self.message_box.config(wrap=tk.WORD)
         
-        # load the message history into the message box window, if enabled
         if self.settings['use_message_history']:
             try:
                 self._load_message_history()
@@ -101,33 +103,49 @@ class ARDOPCFGUI(tk.Tk):
         self.message_box.config(state=tk.DISABLED)
 
         self.message_box.pack()
+        self.entry_label = tk.Label(self, text="Enter Message:")
+        self.entry_label.pack()
+
         self.entry = tk.Entry(self, width=60)
         self.entry.bind("<Return>", lambda event: self.send_chat_message())
         self.entry.pack()
-        self.send_button = tk.Button(self, text="Send", command=self.send_chat_message)
-        #disable the send button until the user enters a message
+
+
+        self.native_button_frame = tk.Frame(self)
+        self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message)
+        # disable the send button until the user enters a message
         self.send_button['state'] = 'disabled'
+        # enable the chat send button when the user types something
         self.entry.bind("<Key>", lambda event: self.send_button.config(state='normal'))
-        self.send_button.pack()
+        self.send_button.pack(side=tk.LEFT)
 
+        self.clear_buffer_button = tk.Button(self.native_button_frame, text="Clear Buffer/Stop", command=self.ardop.clear_buffer)
+        self.clear_buffer_button.pack(side=tk.LEFT)
+
+        self.settings_button = tk.Button(self.native_button_frame, text="Settings", command=self.create_settings_menu)
+        self.settings_button.pack(side=tk.LEFT)
+
+        self.info_button = tk.Button(self.native_button_frame, text="About", command=self.display_info_box)
+        self.info_button.pack(side=tk.LEFT)
+        self.native_button_frame.pack()
+
+        self.plugins_frame = tk.Frame(self)
         self.plugins.on_ui_create_widgets()
+        self.plugins_frame.pack()
 
-        self.clear_buffer_button = tk.Button(self, text="Clear Buffer", command=self.ardop.clear_buffer)
-        self.clear_buffer_button.pack()
-        self.settings_button = tk.Button(self, text="Settings", command=self.create_settings_menu)
-        self.settings_button.pack()
-
-        self.ardop_state_label = tk.Label(self, text="ARDOP State:")
-        self.ardop_state_label.pack(side=tk.LEFT)
+        self.status_bar_frame = tk.Frame(self)
+        self.ardop_state_label = tk.Label(self.status_bar_frame, text="TNC State:")
+        self.ardop_state_label.grid(row=0, column=0)
         self.ardop_state_string = tk.StringVar()
-        self.ardop_state = tk.Label(self, textvariable=self.ardop_state_string)
-        self.ardop_state.pack(side=tk.LEFT)
+        self.ardop_state = tk.Label(self.status_bar_frame, textvariable=self.ardop_state_string)
+        self.ardop_state.grid(row=0, column=1)
 
         self.ardop_buffer_string = tk.StringVar()
-        self.ardop_buffer_label = tk.Label(self, text="ARDOP Buffer:")
-        self.ardop_buffer_label.pack(side=tk.LEFT)
-        self.ardop_buffer = tk.Label(self, textvariable=self.ardop_buffer_string)
-        self.ardop_buffer.pack(side=tk.LEFT)
+        self.ardop_buffer_label = tk.Label(self.status_bar_frame, text="DATA Buffer:")
+        self.ardop_buffer_label.grid(row=1, column=0)
+        self.ardop_buffer = tk.Label(self.status_bar_frame, textvariable=self.ardop_buffer_string)
+        self.ardop_buffer.grid(row=1, column=1)
+        self.status_bar_frame.pack(side=tk.BOTTOM)
 
     def write_message(self, message: str):
         self.message_box.config(state=tk.NORMAL)
@@ -141,12 +159,15 @@ class ARDOPCFGUI(tk.Tk):
     def display_info_box(self):
         info_box = tk.Toplevel(self)
         info_box.title("About ARDOP Chat")
-        info_box.geometry("300x300")
+        info_box.geometry("500x300")
         info_label = tk.Label(info_box, text=info)
         info_label.pack()
         close_button = tk.Button(info_box, text="Close", command=info_box.destroy)
         close_button.pack()
     
+    def estimate_minutes_to_send(self):
+        return(int(self.ardop.state.get("buffer")) / self.ardop.rate_table[self.settings['fec_mode']])
+
     def display_warning_box(self, message):
         warning_box = tk.Toplevel(self)
         warning_box.title("Warning")
@@ -158,7 +179,7 @@ class ARDOPCFGUI(tk.Tk):
 
     def send_chat_message(self):
         message = self.entry.get()
-        message = f"{self.settings['callsign']}:chat:{self.version}:BEGIN:{message}"
+        message = f"{self.settings['callsign']}:chat:{self.version}:BEGIN:{message}:END:"
         self.ardop.append_bytes_to_buffer(message.encode())
         self.ardop.transmit_buffer()
 
@@ -168,42 +189,48 @@ class ARDOPCFGUI(tk.Tk):
         self.save_message_history()
     
     def listen_for_data(self):
-        data: bytes = self.ardop.recieve_from_data_buffer()
-        
-        if data:
-            header = data.split(b':BEGIN:')[0]
-            payload = data.split(b':BEGIN:')[1]
+        while not self.die.is_set():
+            print("Listening for data...")
+            # This will block until data is received.
+            # Bytes returned have the format:
+            data: bytes = self.ardop.recieve_from_data_buffer()
 
-            # we handle chat in the main application, not in a plugin because the chat is integral to the program
-            if b":chat:" in header:
-                message: str = str(header.split(b":")[0]) + payload.decode()
-                self.write_message(message)
-            
-            for plugin in self.plugins.plugins:
-                for handler in plugin.definition['handlers']:
-                    if handler in header.split(b':')[1].decode():
-                        remote_plugin_version = header.split(b':')[2].decode()
-                        if plugin.definition['version'] != remote_plugin_version:
-                            self.display_warning_box(f'''Local plugin {plugin.__class__.__name__} has version mismatch
-                                                      with remote plugin {remote_plugin_version}.\n 
-                                                     Data may not be handled correctly.''')
-                        # we have a plugin that can handle this data, it will do
-                        # whatever in this interface it needs to do without further handling here.
-                        plugin.on_data_received({'header': header, 'payload': payload})
-            
-            print(f"Received data: {data}")
-            
-            self.save_message_history()
-        self.after(1000, self.listen_for_data)
+            if b":BEGIN:" in data:
+                print(f"Received data: {data}")
+                header = data.split(b':BEGIN:')[0]
+                # get everyting between :BEGIN: and :END:
+                payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
+
+                # we handle chat in the main application, not in a plugin because the chat is integral to the program
+                if b":chat:" in header:
+                    message = header.split(b":")[0] +b": " + payload
+                    self.write_message(message.decode())
+                
+                for plugin in self.plugins.plugins:
+                    for handler in plugin.definition['handlers']:
+                        if handler in header.split(b':')[1].decode():
+                            remote_plugin_version = header.split(b':')[2].decode()
+                            if plugin.definition['version'] != remote_plugin_version:
+                                self.display_warning_box(f'''Local plugin {plugin.__class__.__name__} has version mismatch
+                                                        with remote plugin {remote_plugin_version}.\n 
+                                                        Data may not be handled correctly.''')
+                            # we have a plugin that can handle this data, it will do
+                            # whatever in this interface it needs to do without further handling here.
+                            plugin.on_data_received({'header': header, 'payload': payload})
+                
+                print(f"Received data: {data}")
+                self.save_message_history()
     
     def update_ui_ardop_state(self):
-        self.ardop.cmd_response(command='STATE', wait=False)
-        self.ardop.cmd_response(command='BUFFER', wait=False)
-        self.ardop_state_string.set(self.ardop.state['state'])
-        self.ardop_buffer_string.set(self.ardop.state['buffer'])
-        self.plugins.on_ui_ardop_state_update()
-
-        self.after(200, self.update_ui_ardop_state)
+        while not self.die.is_set():
+            self.ardop.cmd_response(command='STATE', wait=False)
+            self.ardop.cmd_response(command='BUFFER', wait=False)
+            self.ardop_state_string.set(self.ardop.state['state'])
+            time_to_send = self.estimate_minutes_to_send()
+            time_to_send = int(time_to_send)
+            self.ardop_buffer_string.set(f"{self.ardop.state['buffer']} : {time_to_send}m @ {self.settings['fec_mode']}")
+            self.plugins.on_ui_ardop_state_update()
+            time.sleep(0.5) # update every half second
     
     def create_settings_menu(self):
         self.settings_menu = tk.Toplevel(self)

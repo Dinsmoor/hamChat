@@ -26,6 +26,7 @@ class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
     def on_data_received(self, data : dict) -> bytes:
         '''data should be a dictionary with a header and a payload both of type bytes'''
 
+        #                                 0       1     2     3        4       5
         # expected header for FileXfr: CALLSIGN:FileXfr:0.1:FILENAME:FILESIZE:BEGIN:
         suggested_filename = data['header'].split(b':')[3]
 
@@ -34,24 +35,33 @@ class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
         self._save_file_to_disk(data['payload'], suggested_filename)
     
     def on_ui_create_widgets(self):
-        # button to add a file to the buffer
-        # not sure if this will work.
-        self.add_file_button = tk.Button(self.host_interface, text="Add File", command=self._select_file)
-        self.add_file_button.pack()
-        self.send_file_button = tk.Button(self.host_interface, text="Send File", command=self.host_interface.ardop.transmit_buffer)
-        self.send_file_button.pack()
+        self.button_frame = tk.Frame(self.host_interface.plugins_frame)
+        self.plugin_label = tk.Label(self.button_frame, text=self.definition['name'])
+        self.plugin_label.pack(side=tk.TOP)
+        self.add_file_button = tk.Button(self.button_frame, text="Add File", command=self._select_file)
+        self.add_file_button.pack(side=tk.LEFT)
+        self.send_file_button = tk.Button(self.button_frame, text="Send File", command=self.host_interface.ardop.transmit_buffer)
+        self.send_file_button.pack(side=tk.LEFT)
+        self.button_frame.pack()
         
     def _select_file(self):
         filename = filedialog.askopenfilename()
+        # filename only, not the full path
+        filename_nopath = filename.split('/')[-1]
+        # FIXME: find out how many bytes we can send before ConnectionResetError and chunk them.
         self._load_file_to_buffer(filename)
         file_length = len(open(filename, 'rb').read())
-        self.host_interface.write_message(f"{filename} added to buffer, {file_length} bytes")
+        
+        self.host_interface.write_message(f"{filename_nopath} added to buffer, {file_length} bytes")
         self.host_interface.send_button['state'] = 'disabled'
         self.host_interface.entry['state'] = 'disabled'
         self.host_interface.save_message_history()
     
     def _save_file_to_disk(self, data: bytes, suggested_filename: str = None):
         filename = filedialog.asksaveasfilename(initialfile=suggested_filename,)
+        # if the user cancels the save dialog, filename will be an empty string
+        if not filename:
+            return
         with open(filename, 'wb') as f:
             f.write(data)
         self.host_interface.write_message(f"File saved to {filename}")
@@ -64,8 +74,10 @@ class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
         with open(filename, 'rb') as f:
             file = f.read()
             filesize = len(file)
-            header = f"{callsign}:{proto}:{proto_ver}:{filename}:{filesize}:BEGIN:"
-            data = header.encode() + file
+            filename_nopath = filename.split('/')[-1]
+            header = f"{callsign}:{proto}:{proto_ver}:{filename_nopath}:{filesize}:BEGIN:".encode()
+            footer = b":END:"
+            data = header + file + footer
             self.host_interface.ardop.append_bytes_to_buffer(data)
         self.host_interface.write_message(f"{filename} added to buffer, {filesize} bytes")
 

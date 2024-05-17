@@ -8,6 +8,7 @@ import sys
 class ARDOPCF:
     def __init__(self, host_interface):
         self.stop_event = threading.Event()
+        self.data_transfer_complete = threading.Event()
         self.command_response_history = []
         self.host_interface = host_interface
 
@@ -60,6 +61,31 @@ class ARDOPCF:
             '4FSK.2000.600',
             '4FSK.2000.600S'
         ]
+
+        self.rate_table = {
+            # everything that's 10 is unknown, it's not in the appendix C of the ARDOP spec that I saw.
+            '4FSK.200.50S': 310,
+            '4PSK.200.100S': 436,
+            '4PSK.200.100': 756,
+            '8PSK.200.100': 1286,
+            '16QAM.200.100': 1512,
+
+            '4FSK.500.100S': 10, 
+            '4FSK.500.100': 10,
+            '4PSK.500.100': 1509,
+            '8PSK.500.100': 2566,
+            '16QAM.500.100': 3024,
+
+            '4PSK.1000.100': 3018,
+            '8PSK.1000.100': 5133,
+            '16QAM.1000.100': 6036,
+
+            '4PSK.2000.100': 6144,
+            '8PSK.2000.100': 10386,
+            '16QAM.2000.100': 12072,
+            '4FSK.2000.600': 10,
+            '4FSK.2000.600S': 10
+        }
 
         self.state = {
             'state': 'DISC',
@@ -133,10 +159,17 @@ class ARDOPCF:
         # this application only uses FEC mode
         # data format is <2 bytes for length><FEQ or ARQ><data>
         # data should already come here with the protocol header
-        data = b'FEC' + data
-        data_length = len(data).to_bytes(2, 'big')
-        data = data_length + data
-        self.sock_data.sendall(data)
+
+        # if the data is too long, we can't send it without splitting it up
+        # 1000 seems comfortable.
+
+        for i in range(0, len(data), 1000):
+            data_chunk = data[i:i+1000]
+            # every chunk of data needs to be prefixed with the FEC prefix else the TNC will ignore it
+            data_chunk = b'FEC' + data_chunk
+            data_length = len(data_chunk).to_bytes(2, 'big')
+            data_chunk = data_length + data_chunk
+            self.sock_data.sendall(data_chunk)
 
     def transmit_buffer(self):
         # twice! because the TNC is a little finicky on first transmit
@@ -149,25 +182,64 @@ class ARDOPCF:
         self.host_interface.entry['state'] = 'normal'
 
     def recieve_from_data_buffer(self) -> bytes:
-        # The TNC decodes audio, if there is a valid packet,
-        # it puts into the data buffer.
-        # Duplicate frames will not be passed to the host.
-        try:
-            if self.sock_data in select.select([self.sock_data], [], [], 0)[0]:
+        # This is blocking, and should run in its own thread 
+        # It will wait until it gets a full set of frames, or the transmission
+        # times out.  The timeout is 7 seconds, which might be enough for 5 FEC repeats.
+
+        # This may take several minutes if the data is long and the data mode is slow.
+        # or we remain in the DISC state for more than 7 seconds (enough time for 5 FEC repeats)
+
+        # the smallest data frame 4FSK.200.50S will encode just 16 data bytes
+        # chances are that we will not receive a full frame in one go unless 
+        # we are using a high data rate
+
+        # no matter what frame we recieved, or the order we got the frame
+        # we will always get the following bytes from the beginning of the data socket:
+        # 2 bytes for the length of the frame
+        # 6 bytes for the FECFEC prefix
+
+        # we can detect if the message is over by checking if the end of the message is ':END:'
+
+        all_frame_data = b''
+        timeout = 7
+        # every series of frames, initially just wait forever
+        listen_time = None
+        start_time = time.time()
+
+        while not self.stop_event.is_set():
+            # no data in 7 seconds? we are done
+            if time.time() - start_time > timeout:
+                break
+            # check every 300ms if we have data (time delay between frames or repeats)
+            if self.sock_data in select.select([self.sock_data], [], [], listen_time)[0]:
                 raw_response: bytes = self.sock_data.recv(1024)
-                # first two bytes are the length of the message
-                message_length = int.from_bytes(raw_response[:2], 'big')
-                # check if the message length is the actual length of the message
-                if message_length != len(raw_response[2:]):
-                    print("WARNING: ARDOP length does not match actual message length.")
-                    print(f"ARDOP length: {message_length}, actual length: {len(raw_response[2:])}")
+                # for testing, save the raw data to a file, append mode
+                with open('raw_data', 'ab') as f:
+                    f.write(raw_response)
+
+                # next two bytes are the length of the frame, which we can trim, because
+                # we can just read until we get the :END: footer
                 raw_response = raw_response[2:]
-                # next six bytes are "FECFEC", which we can trim
-                raw_response = raw_response[6:]
-                return(raw_response)
-        except OSError as e:
-            return(None)
-        
+                # maybe FECFEC is only in the first frame?
+
+                # always trim that annoying SHIT FEC prefix that isn't there for a good reason
+                while raw_response.startswith(b'FEC'):
+                    raw_response = raw_response[3:]
+                this_frame_data = raw_response
+                
+                # reset the timer if we got data
+                start_time = time.time()
+                # unfortunately, we really do need a footer.
+                all_frame_data += this_frame_data
+                if b':END:' in this_frame_data:
+                    break
+                listen_time = 0.1
+
+        return(all_frame_data)
+
+    def abort(self):
+        self.cmd_response(command="ABORT", wait=False)
+
     def cmd_response(self, command=None, wait=False) -> str:
         # if we run without a command, return immediately
         # if we run with a command, block until we get a response
@@ -239,6 +311,7 @@ class ARDOPCF:
         print("Halting transmission, closing all sockets, and exiting")
         self.unkey_transmitter()
         self.stop_event.set()
+        self.host_interface.die.set()
         # this is a hack to get the command_response thread to exit
         # (it's blocking on a recv call until it gets a response from the TNC)
         self.cmd_response(command='STATE', wait=False)
