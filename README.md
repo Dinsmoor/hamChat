@@ -2,9 +2,17 @@
 
 *Consider this software unstable and subject to extreme changes*
 
-This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF sound modem over a traciever controlled by rigctld.
+This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF sound modem over a traciever controlled by rigctld. Its power is that almost any functionality can be added via plugins.
 
 There is an included example plugin that provides very basic file transfer, with no guarantee of completeness or correctness.
+
+## Usage
+
+Have the following software running
+- ardopcf
+- rigctld (if you use vox just don't specify a rig and it will be a dummy port)
+
+then run hamchat with `python3 main.py`
 
 ## Plugins
 
