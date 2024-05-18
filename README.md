@@ -1,6 +1,6 @@
-## ARDOPCF FEC CHAT
+## ARDOPCF FEC CHAT (soon to be called hamChat once the plugin system is perfected)
 
-*Consider this software extremely unstable and not at all usable at this point.*
+*Consider this software unstable and subject to extreme changes*
 
 This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF sound modem over a traciever controlled by rigctld.
 
