@@ -23,13 +23,10 @@ such as whenever the UI state is updated or if the TNC recieves a data packet th
 Plugins can add new windows or widgets, directly issue commands to the TNC, or do pretty much anything.
 
 # Plugin Rules
-1. Plugins must be in the ARDOPCF_Plugins folder
-2. Plugins must begin with the filename ARDOPCFPlugin
-3. Plugins must minimally have an `def __init__(self, host_interface):` and specify info and their definition as object variables.
-   - Plugins can access all parts of the UI and TNC via the host_interface object.
-   - See ARDOPCFPluginFileTransfer.py or ARDOPCPluginCore.py or ARDOPCPlugin.py for examples
-1. See ARDOPCFPlugin.py for what hooks are implemented.
-2. To recieve and process incoming data, at least one protocol handler must be specified in self.definition.
+1. Plugins files (python) go in the ARDOPCF_Plugins folder
+2. All classes in that folder that inherit from `ARDOPCFPlugin` will be loaded.
+3. Plugin class initialization must accept one argument, which is the GUI instance object.
+   - See plugin folder for examples
 
 # Ideas for Plugins
 - Over-the-air Plugin sharing

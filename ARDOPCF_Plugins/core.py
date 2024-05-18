@@ -1,7 +1,7 @@
 # inherits from ARDOPCFPlugin
 from ARDOPCFPlugin import ARDOPCFPlugin
 
-class ARDOPCFPluginCore(ARDOPCFPlugin):
+class Core(ARDOPCFPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)
 
@@ -11,13 +11,12 @@ class ARDOPCFPluginCore(ARDOPCFPlugin):
         """
         self.definition = {
             'author': 'Tyler Dinsmoor/K7OTR',
-            'name': 'Core Plugin',
+            'name': 'Core',
             'version': host_interface.version,
             'description': self.info,
             'protocol_identifier': '',
             'handlers': [],
             'protocol_fields': [],
-            'provides': self.__class__.__name__,
             'depends_on': [],
         }
         

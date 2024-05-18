@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 
-class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
+class SimpleFileTransfer(ARDOPCFPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)
         self.info = f"""
@@ -19,8 +19,7 @@ class ARDOPCFPluginFileTransfer(ARDOPCFPlugin):
             'protocol_identifier': 'FileXfr',
             'handlers': ['FileXfr'],
             'expected_header': "SENDER:FileXfr:0.1:RECIPIENTS:FILENAME:FILESIZE:BEGIN:",
-            'provides': self.__class__.__name__,
-            'depends_on': [{'plugin': 'ARDOPCFPluginCore', 'version': '0.1'}],
+            'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
         }
     
     def on_data_received(self, data : dict) -> bytes:

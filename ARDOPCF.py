@@ -213,8 +213,8 @@ class ARDOPCF:
             if self.sock_data in select.select([self.sock_data], [], [], listen_time)[0]:
                 raw_response: bytes = self.sock_data.recv(1024)
                 # for testing, save the raw data to a file, append mode
-                with open('raw_data', 'ab') as f:
-                    f.write(raw_response)
+                #with open('raw_data', 'ab') as f:
+                #    f.write(raw_response)
 
                 # next two bytes are the length of the frame, which we can trim, because
                 # we can just read until we get the :END: footer
@@ -226,6 +226,9 @@ class ARDOPCF:
                 # every other subsequent data packet will just have a single FEC prefixing it.
                 elif raw_response.startswith(b'FEC'):
                     raw_response = raw_response[3:]
+                elif raw_response.startswith(b'ERR'):
+                    print("TNC sent error, ignoring.")
+                    continue
 
                 this_frame_data = raw_response
                 

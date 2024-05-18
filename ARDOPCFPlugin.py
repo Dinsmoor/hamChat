@@ -28,8 +28,7 @@ class ARDOPCFPlugin:
             'protocol_identifier': 'TemPlate',
             'handlers': ['TemPlate', 'PROTOCOL_IDENTIFIER2', 'PROTOCOL_IDENTIFIER3'],
             'expected_header': "CALLSIGN:TemPlate:0.1:BEGIN:", # just so it's clear what the header should look like
-            'provides': self.__class__.__name__,
-            'depends_on': [{'plugin': 'PluginName', 'version': '0.1'}],
+            'depends_on': [{'plugin': 'Some Other Plugin Name', 'version': '0.1'}],
         }
 
     def on_data_received(self):

@@ -37,7 +37,7 @@ class PluginManager:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 for attr_name in dir(module):
-                    if attr_name.startswith('ARDOPCFPlugin') and attr_name != 'ARDOPCFPlugin':
+                    if attr_name != 'ARDOPCFPlugin':
                         attr = getattr(module, attr_name)
                         if isinstance(attr, type) and issubclass(attr, ARDOPCFPlugin):
                             valid_plugin_object = attr(host_interface=self.host_interface)
@@ -49,7 +49,7 @@ class PluginManager:
             dependency: dict
             for dependency in plugin.definition.get('depends_on'):
                 if not self.is_dependency_met(dependency.get('plugin'), dependency.get('version')):
-                    print(f"Dependency NOT met for {plugin.__class__.__name__}: {dependency.get('plugin')} {dependency.get('version')}")
+                    print(f"Dependency NOT met for {plugin.definition.get('name')}: {dependency.get('plugin')} {dependency.get('version')}")
                     self.unmet_dependencies.append(f"{dependency.get('plugin')} {dependency.get('version')}")
                     return False
         return True
@@ -57,7 +57,7 @@ class PluginManager:
     def is_dependency_met(self, plugin_name: str, version: str):
         plugin: ARDOPCFPlugin
         for plugin in self.plugins:
-            if plugin.__class__.__name__ == plugin_name:
+            if plugin.definition.get('name') == plugin_name:
                 if plugin.definition.get('version') != version:
                     return False
         return True
@@ -65,7 +65,7 @@ class PluginManager:
     def list_plugins(self):
         print(f"{len(self.plugins)} Loaded plugins:")
         for plugin in self.plugins:
-            print(f"{plugin.__class__.__name__[13:]} version {plugin.definition.get('version')} by {plugin.definition.get('author')}")
+            print(f"{plugin.definition.get('name')}:{plugin.definition.get('version')} by {plugin.definition.get('author')}")
             print(plugin.info)
 
     def on_data_received(self, data: dict):

@@ -39,7 +39,7 @@ class ARDOPCFGUI(tk.Tk):
         self.version = '0.1'
         self.title("ARDOPCF Chat")
         self.resizable(True, True)
-        self.geometry("500x768")
+        self.geometry("1000x700")
         self.settings = {
             'callsign': 'N0CALL',
             'gridsquare': 'AA00AA',
