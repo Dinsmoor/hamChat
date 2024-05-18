@@ -8,7 +8,7 @@ class PluginManager:
     def __init__(self, host_interface, plugin_folder='ARDOPCF_Plugins'):
         '''This class is used to manage the plugins that are loaded into the ARDOP Chat application.'''
 
-        # contains like: [ARDOPCFPluginCore, ARDOPCFPluginFileTransfer]
+        # contains like: [ARDOPCFPluginCore, ARDOPCFPluginFileTransfer] objects
         # currently there is no load order except alphabetical
         self.plugins: list[ARDOPCFPlugin] = []
         self.host_interface = host_interface

@@ -22,13 +22,17 @@ class ARDOPCFGUI(tk.Tk):
     def __init__(self):
         """
         This is the main application window for the ARDOP Chat application.
-        all incoming and outgoing messages will be prefixed with a header.
-        a typical message will look like this:
-        N0CALL:chat:0.1:BEGIN:Hello, world!
-        Index 0: Callsign
+        all incoming and outgoing messages will be prefixed with a flexible header.
+        a typical chat message will look like this (SUBJECT TO CHANGE):
+           0    1    2      3        4          5         6 (-1)
+        N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
+        Index 0: Sender Callsign 
         Index 1: Protocol Identifier
         Index 2: Protocol Version
-        Index -1: END
+        Index 3: Recipient Callsigns (optional, comma separated)
+        Index 4: BEGIN Header
+        Index 5: Payload (can be anything)
+        Index -1: END Footer
         All other indexes until ":BEGIN:" are reserved for a plugin to use as it sees fit.
         """
         tk.Tk.__init__(self)
@@ -67,6 +71,10 @@ class ARDOPCFGUI(tk.Tk):
         self.ui_updater = threading.Thread(target=self.update_ui_ardop_state)
         self.ui_updater.start()
 
+        # warn the user of any current known bugs
+        self.display_warning_box("Current known bugs:\nThe window won't want to close\nwhen you press the close button.\nYou may need to do ctrl+c in the terminal.")
+
+
     def _save_settings_to_file(self):
         with open('chat_settings.json', 'w') as f:
             f.write(json.dumps(self.settings))
@@ -86,8 +94,11 @@ class ARDOPCFGUI(tk.Tk):
             self.message_history = f.readlines()
 
     def create_widgets(self):
-        self.message_box = tk.Text(self, width=60, height=20)
-        self.scrollbar = tk.Scrollbar(self, command=self.message_box.yview)
+
+        self.chat_frame = tk.Frame(self)
+
+        self.message_box = tk.Text(self.chat_frame, width=60, height=20)
+        self.scrollbar = tk.Scrollbar(self.chat_frame, command=self.message_box.yview)
         self.message_box.config(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.message_box.config(wrap=tk.WORD)
@@ -102,13 +113,19 @@ class ARDOPCFGUI(tk.Tk):
         # message box should not be editable, we will need to toggle this to update
         self.message_box.config(state=tk.DISABLED)
 
-        self.message_box.pack()
-        self.entry_label = tk.Label(self, text="Enter Message:")
+        self.message_box.pack(fill=tk.BOTH, expand=True)
+        self.entry_label = tk.Label(self.chat_frame, text="Enter Message:")
         self.entry_label.pack()
-
-        self.entry = tk.Entry(self, width=60)
+        self.entry = tk.Entry(self.chat_frame, width=60)
         self.entry.bind("<Return>", lambda event: self.send_chat_message())
-        self.entry.pack()
+        self.entry.pack(fill=tk.X)
+
+        self.recipient_label = tk.Label(self.chat_frame, text="Recipient Callsigns:")
+        self.recipient_label.pack()
+        self.recipients = EntryWithPlaceholder(self.chat_frame, width=60, placeholder="NOCALL,NO2CALL")
+        self.recipients.pack(fill=tk.X)
+
+        self.chat_frame.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
 
 
         self.native_button_frame = tk.Frame(self)
@@ -130,7 +147,11 @@ class ARDOPCFGUI(tk.Tk):
         self.native_button_frame.pack()
 
         self.plugins_frame = tk.Frame(self)
+
+
         self.plugins.on_ui_create_widgets()
+
+
         self.plugins_frame.pack()
 
         self.status_bar_frame = tk.Frame(self)
@@ -171,7 +192,7 @@ class ARDOPCFGUI(tk.Tk):
     def display_warning_box(self, message):
         warning_box = tk.Toplevel(self)
         warning_box.title("Warning")
-        warning_box.geometry("300x300")
+        warning_box.geometry("300x200")
         warning_label = tk.Label(warning_box, text=message)
         warning_label.pack()
         close_button = tk.Button(warning_box, text="Close", command=warning_box.destroy)
@@ -179,12 +200,20 @@ class ARDOPCFGUI(tk.Tk):
 
     def send_chat_message(self):
         message = self.entry.get()
-        message = f"{self.settings['callsign']}:chat:{self.version}:BEGIN:{message}:END:"
-        self.ardop.append_bytes_to_buffer(message.encode())
+        sender = self.settings['callsign']
+        recipients = self.recipients.get().strip()
+        if not recipients:
+            recipients = "ALL"
+        # If this was in a plugin, this format would be the same except for any
+        # additional fields that the plugin would need to add to the header.
+        # the next three lines would be basically the same.
+        data = f"{sender}:chat:{self.version}:{recipients}:BEGIN:{message}:END:"
+        self.ardop.append_bytes_to_buffer(data.encode())
         self.ardop.transmit_buffer()
 
         self.entry.delete(0, tk.END)
-        self.write_message(f"{message.split(':')[0]}: {message.split(':')[4]}")
+        # for our message box
+        self.write_message(f"{sender}->{recipients}: {message}")
         self.send_button['state'] = 'disabled'
         self.save_message_history()
     
@@ -203,8 +232,10 @@ class ARDOPCFGUI(tk.Tk):
 
                 # we handle chat in the main application, not in a plugin because the chat is integral to the program
                 if b":chat:" in header:
-                    message = header.split(b":")[0] +b": " + payload
-                    self.write_message(message.decode())
+                    sender = header.split(b":")[0].decode()
+                    recipents = header.split(b":")[3].decode()
+                    message = f"{sender}->{recipents}: {payload.decode()}"
+                    self.write_message(message)
                 
                 for plugin in self.plugins.plugins:
                     for handler in plugin.definition['handlers']:
@@ -237,44 +268,62 @@ class ARDOPCFGUI(tk.Tk):
         self.settings_menu.title("Settings")
         self.settings_menu.geometry("300x300")
 
-        self.callsign_label = tk.Label(self.settings_menu, text="Callsign")
+        # central frame for the two side-by-side columns
+        self.settings_frame = tk.Frame(self.settings_menu)
+
+        # left side frame for user settings like callsign, gridsquare, etc.
+        self.usersettings_frame = tk.Frame(self.settings_frame)
+
+        self.callsign_label = tk.Label(self.usersettings_frame, text="Callsign")
         self.callsign_label.pack()
-        self.callsign_entry = tk.Entry(self.settings_menu)
+        self.callsign_entry = tk.Entry(self.usersettings_frame)
         self.callsign_entry.insert(0, self.settings['callsign'])
         self.callsign_entry.pack()
 
-        self.gridsquare_label = tk.Label(self.settings_menu, text="Gridsquare")
+        self.gridsquare_label = tk.Label(self.usersettings_frame, text="Gridsquare")
         self.gridsquare_label.pack()
-        self.gridsquare_entry = tk.Entry(self.settings_menu)
+        self.gridsquare_entry = tk.Entry(self.usersettings_frame)
         self.gridsquare_entry.insert(0, self.settings['gridsquare'])
         self.gridsquare_entry.pack()
-
-        self.fec_mode_label = tk.Label(self.settings_menu, text="FEC Mode")
-        self.fec_mode_label.pack()
-        self.fec_mode_var = tk.StringVar(self.settings_menu)
-        self.fec_mode_var.set(self.settings['fec_mode'])
-        self.fec_mode_menu = tk.OptionMenu(self.settings_menu, self.fec_mode_var, *self.ardop.fec_modes)
-        self.fec_mode_menu.pack()
-
-        self.fec_repeats_label = tk.Label(self.settings_menu, text="FEC Repeats")
-        self.fec_repeats_label.pack()
-        self.fec_repeats_entry = tk.Scale(self.settings_menu, from_=0, to=5, orient=tk.HORIZONTAL)
-        self.fec_repeats_entry.set(self.settings['fec_repeats'])
-        self.fec_repeats_entry.pack()
 
         # checkbox for enabling saving and loading of message history
         self.save_message_history_var = tk.IntVar()
         self.save_message_history_var.set(1)
-        self.save_message_history_checkbutton = tk.Checkbutton(self.settings_menu, text="Save Message History", variable=self.save_message_history_var)
+        self.save_message_history_checkbutton = tk.Checkbutton(self.usersettings_frame, text="Save Message History", variable=self.save_message_history_var)
         self.save_message_history_checkbutton.pack()
+
+        # right side frame for ARDOP settings like FEC mode, repeats, etc.
+        self.ardopsettings_frame = tk.Frame(self.settings_frame)
+
+        self.fec_mode_label = tk.Label(self.ardopsettings_frame, text="FEC Mode")
+        self.fec_mode_label.pack()
+        self.fec_mode_var = tk.StringVar(self.ardopsettings_frame)
+        self.fec_mode_var.set(self.settings['fec_mode'])
+        self.fec_mode_menu = tk.OptionMenu(self.ardopsettings_frame, self.fec_mode_var, *self.ardop.fec_modes)
+        self.fec_mode_menu.pack()
+
+        self.fec_repeats_label = tk.Label(self.ardopsettings_frame, text="FEC Repeats")
+        self.fec_repeats_label.pack()
+        self.fec_repeats_entry = tk.Scale(self.ardopsettings_frame, from_=0, to=5, orient=tk.HORIZONTAL)
+        self.fec_repeats_entry.set(self.settings['fec_repeats'])
+        self.fec_repeats_entry.pack()
+
+        # button box frame
+        self.settingsbuttons_frame = tk.Frame(self.settings_menu)
+        self.save_button = tk.Button(self.settingsbuttons_frame, text="Save", command=self.save_settings)
+        self.save_button.pack(side=tk.LEFT)
+        self.cancel_button = tk.Button(self.settingsbuttons_frame, text="Cancel", command=self.settings_menu.destroy)
+        self.cancel_button.pack(side=tk.RIGHT)
 
         # allow plugins to add additional settings
         self.plugins.on_ui_create_settings_menu()
 
-        self.save_button = tk.Button(self.settings_menu, text="Save", command=self.save_settings)
-        self.save_button.pack()
-        self.cancel_button = tk.Button(self.settings_menu, text="Cancel", command=self.settings_menu.destroy)
-        self.cancel_button.pack()
+        self.settings_frame.pack()
+        self.usersettings_frame.pack(side=tk.LEFT)
+        self.ardopsettings_frame.pack(side=tk.RIGHT)
+        self.settingsbuttons_frame.pack()
+
+        
 
     def save_settings(self):
         self.settings['callsign'] = self.callsign_entry.get()
@@ -298,6 +347,18 @@ class ARDOPCFGUI(tk.Tk):
         self.ardop.cmd_response(command=f'FECMODE {self.settings["fec_mode"]}', wait=False)
         self.ardop.cmd_response(command=f'FECREPEATS {self.settings["fec_repeats"]}', wait=False)
         self.plugins.on_ui_save_settings()
+
+
+class EntryWithPlaceholder(tk.Entry):
+    def __init__(self, master=None, placeholder="PLACEHOLDER", **kwargs):
+        super().__init__(master, **kwargs)
+        self.placeholder = placeholder
+        self.insert(0, self.placeholder)
+        self.bind("<FocusIn>", self._clear_placeholder)
+
+    def _clear_placeholder(self, event):
+        if self.get() == self.placeholder:
+            self.delete(0, tk.END)
 
 if __name__ == '__main__':
     ardop_chat_ui = ARDOPCFGUI()

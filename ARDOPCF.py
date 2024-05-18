@@ -184,10 +184,8 @@ class ARDOPCF:
     def recieve_from_data_buffer(self) -> bytes:
         # This is blocking, and should run in its own thread 
         # It will wait until it gets a full set of frames, or the transmission
-        # times out.  The timeout is 7 seconds, which might be enough for 5 FEC repeats.
-
-        # This may take several minutes if the data is long and the data mode is slow.
-        # or we remain in the DISC state for more than 7 seconds (enough time for 5 FEC repeats)
+        # times out. The timeout is 7 seconds, which might be enough for a few frame repeats,
+        # if the sender has repeats enabled
 
         # the smallest data frame 4FSK.200.50S will encode just 16 data bytes
         # chances are that we will not receive a full frame in one go unless 
@@ -196,7 +194,8 @@ class ARDOPCF:
         # no matter what frame we recieved, or the order we got the frame
         # we will always get the following bytes from the beginning of the data socket:
         # 2 bytes for the length of the frame
-        # 6 bytes for the FECFEC prefix
+        # 6 bytes for the FECFEC prefix if the first frame of a series of frames (bug?)
+        # 3 bytes for the FEC prefix if not the first frame of a series of frames
 
         # we can detect if the message is over by checking if the end of the message is ':END:'
 
@@ -207,7 +206,7 @@ class ARDOPCF:
         start_time = time.time()
 
         while not self.stop_event.is_set():
-            # no data in 7 seconds? we are done
+            # no data for a while? give up
             if time.time() - start_time > timeout:
                 break
             # check every 300ms if we have data (time delay between frames or repeats)
@@ -220,24 +219,30 @@ class ARDOPCF:
                 # next two bytes are the length of the frame, which we can trim, because
                 # we can just read until we get the :END: footer
                 raw_response = raw_response[2:]
-                # maybe FECFEC is only in the first frame?
-
-                # always trim that annoying SHIT FEC prefix that isn't there for a good reason
-                while raw_response.startswith(b'FEC'):
+                # on the first frame of a series of frames, we will get FECFEC at the beginning
+                # of the data packet that ardopcf sends us. I think this is a bug.
+                if raw_response.startswith(b'FECFEC'):
+                    raw_response = raw_response[6:]
+                # every other subsequent data packet will just have a single FEC prefixing it.
+                elif raw_response.startswith(b'FEC'):
                     raw_response = raw_response[3:]
+
                 this_frame_data = raw_response
                 
                 # reset the timer if we got data
                 start_time = time.time()
                 # unfortunately, we really do need a footer.
                 all_frame_data += this_frame_data
-                if b':END:' in this_frame_data:
+                if this_frame_data.endswith(b':END:'):
                     break
                 listen_time = 0.1
 
         return(all_frame_data)
 
     def abort(self):
+        # abort actually sucks and doesn't work immediately
+        # it's better to clear the buffer with PURGEBUFFER,
+        # this makes the TNC stop transmitting immediately, much better than ABORT
         self.cmd_response(command="ABORT", wait=False)
 
     def cmd_response(self, command=None, wait=False) -> str:
@@ -259,14 +264,17 @@ class ARDOPCF:
                 return(None)
     
     def listen_for_command_responses(self):
-        # this is our main loop for handling responses from the TNC
+        # this is our main event loop for handling command responses from the TNC
         while not self.stop_event.is_set():
             response = self.cmd_response(wait=True)
             self.command_response_history.append(response)
 
             try:
                 for entry in self.command_response_history:
-                    #might be a problem if a plugin starts blocking the main thread
+                    # might be a problem if a plugin starts blocking the main thread
+                    # I am not touching it because it was a pain to get working.
+                    # later, I'll stop removing the entry until the plugins get a copy of the command
+                    # right now, its not implemented.
                     #self.host_interface.plugins.on_command_received(entry)
                     if ('PTT TRUE' in entry) or ('T T' in entry):
                         self.state['ptt'] = True

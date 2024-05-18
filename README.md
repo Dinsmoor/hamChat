@@ -1,5 +1,7 @@
 ## ARDOPCF FEC CHAT
 
+*Consider this software extremely unstable and not at all usable at this point.*
+
 This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF sound modem over a traciever controlled by rigctld.
 
 There is an included example plugin that provides very basic file transfer, with no guarantee of completeness or correctness.
@@ -24,6 +26,10 @@ Plugins can add new windows or widgets, directly issue commands to the TNC, or d
 # Ideas for Plugins
 - Over-the-air Plugin sharing
   - Plugin mismatch can be resolved via file transfer
+- Data ACK
+  - Non-connected mode (FEC) delivery confirmation
+- Modulation mode testing
+  - Measure effective throughtput for different data modes.
 - TNC status window
   - Separate section of UI to have the current
 - Automatic Link Establishment
@@ -36,3 +42,22 @@ Plugins can add new windows or widgets, directly issue commands to the TNC, or d
   - If you have a large file, auto negotiate the fastest data rate avaliable for the channel.
 - Data Relay Request
   - A -> B went OK, but C wanted it too. C can request B to give it to them.
+- GPSD Squaking
+  - Send an APRS-compatible message (or whatever message we might want)
+- XASTIR KISS TNC emulator
+  - Interface with existing APRS software through ARDOP
+- Notification System
+  - Ding on message reciept, send you an email or text message, or connect to a custom phone app
+- BBS Server
+  - If clients connect to you, you can post and respond to messages.
+
+# Non-plugin ideas that would significantly change how this program and plugins work
+- Other Transports besides ARDOP
+  - Would require a bit of a rewrite of the frontend, but you could have a TCP/VARA/Packet transports while still getting to use the plugin system. Interfacing with ARDOP would become its own plugin for example, avalibale
+  transports would be avaliable from a drop-down. Each Transport would have its own configuration menu.
+- Web Interface
+  - Would require refactoring for headless installation (raspberry pi)
+  but may be hard for plugins to deal with. Maybe an abstraction layer
+  takes the ui elements avaliable in tkinter or Django (or something)
+  and creates each, however this would be way way too complicated.
+  This will probably never happen.
