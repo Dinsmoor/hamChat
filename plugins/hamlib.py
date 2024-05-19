@@ -18,6 +18,7 @@ class Hamlib(hamChatPlugin):
             'name': 'Hamlib',
             'version': '0.1',
             'description': self.info,
+            'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
         }
         self.sock_rigctld = None
         self.rigctld_host = tk.StringVar()
