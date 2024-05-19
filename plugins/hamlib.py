@@ -1,10 +1,10 @@
-# inherits from ARDOPCFPlugin
-from ARDOPCFPlugin import ARDOPCFPlugin
+# inherits from hamChatPlugin
+from hamChatPlugin import hamChatPlugin
 import tkinter as tk
 import socket
 import select
 
-class Hamlib(ARDOPCFPlugin):
+class Hamlib(hamChatPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)
 
@@ -18,10 +18,6 @@ class Hamlib(ARDOPCFPlugin):
             'name': 'Hamlib',
             'version': '0.1',
             'description': self.info,
-            'protocol_identifier': '',
-            'handlers': [],
-            'protocol_fields': [],
-            'depends_on': [],
         }
         self.sock_rigctld = None
         self.rigctld_host = tk.StringVar()

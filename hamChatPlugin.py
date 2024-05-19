@@ -1,4 +1,4 @@
-class ARDOPCFPlugin:
+class hamChatPlugin:
     def __init__(self, host_interface):
         """ This is the base class for all ARDOP Chat plugins."""
 
@@ -19,16 +19,17 @@ class ARDOPCFPlugin:
 
         self.definition = {
             'author': 'Author Name/Callsign',
+            'url': '',
             'name': 'Plugin Name',
             # this version string will be sent whenever you send a message from this plugin.
             # it should be kept short.
             'version': '0.1',
             'description': self.info,
+            # This is for specifying transports
+            'transport': '',
             # this is what tells the plugin manager to route data to this plugin
-            'protocol_identifier': 'TemPlate',
-            'handlers': ['TemPlate', 'ALL', 'PROTOCOL_IDENTIFIER3'],
-            'expected_header': "CALLSIGN:TemPlate:0.1:BEGIN:", # just so it's clear what the header should look like
-            'depends_on': [{'plugin': 'Some Other Plugin Name', 'version': '0.1'}],
+            'handlers': [],
+            'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
         }
 
     def on_data_received(self):

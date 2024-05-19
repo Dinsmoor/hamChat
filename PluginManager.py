@@ -2,15 +2,15 @@ import sys
 import os
 import importlib.util
 # assist with type hinting
-from ARDOPCFPlugin import ARDOPCFPlugin
+from hamChatPlugin import hamChatPlugin
 
 class PluginManager:
-    def __init__(self, host_interface, plugin_folder='ARDOPCF_Plugins'):
+    def __init__(self, host_interface, plugin_folder='plugins'):
         '''This class is used to manage the plugins that are loaded into the ARDOP Chat application.'''
 
-        # contains like: [ARDOPCFPluginCore, ARDOPCFPluginFileTransfer] objects
+        # contains like: [Core, FileTransfer, Hamlib] objects
         # currently there is no load order except alphabetical
-        self.plugins: list[ARDOPCFPlugin] = []
+        self.plugins: list[hamChatPlugin] = []
         self.host_interface = host_interface
 
         if not os.path.exists(plugin_folder):
@@ -37,14 +37,14 @@ class PluginManager:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 for attr_name in dir(module):
-                    if attr_name != 'ARDOPCFPlugin':
+                    if attr_name != 'hamChatPlugin':
                         attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and issubclass(attr, ARDOPCFPlugin):
+                        if isinstance(attr, type) and issubclass(attr, hamChatPlugin):
                             valid_plugin_object = attr(host_interface=self.host_interface)
                             self.plugins.append(valid_plugin_object)
 
     def are_dependencies_satisfied(self):
-        plugin: ARDOPCFPlugin
+        plugin: hamChatPlugin
         for plugin in self.plugins:
             dependency: dict
             for dependency in plugin.definition.get('depends_on'):
@@ -55,12 +55,17 @@ class PluginManager:
         return True
     
     def is_dependency_met(self, plugin_name: str, version: str):
-        plugin: ARDOPCFPlugin
+        plugin: hamChatPlugin
         for plugin in self.plugins:
             if plugin.definition.get('name') == plugin_name:
                 if plugin.definition.get('version') != version:
                     return False
         return True
+
+    def register_transports(self):
+        for plugin in self.plugins:
+            if plugin.definition.get('transport') != '':
+                self.host_interface.register_protocol(plugin.definition.get('transport'))
 
     def list_plugins(self):
         print(f"{len(self.plugins)} Loaded plugins:")
@@ -70,7 +75,7 @@ class PluginManager:
 
 
     def on_data_received(self, header, payload):
-        '''Only plugins that declare a handler for the protocol_identifier in the data will receive it.'''
+        '''Only plugins that declare a handler for the data will receive it.'''
         for plugin in self.plugins:
             send_to_plugin = False
             for handler in plugin.definition['handlers']:

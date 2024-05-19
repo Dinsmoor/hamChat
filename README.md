@@ -3,6 +3,7 @@
 (will be called hamChat once the plugin system is perfected, and the ardop modem is turned into a plugin)
 
 *Consider this software unstable and subject to extreme changes*
+**DO NOT WRITE PLUGINS FOR THIS YET!**
 
 This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF sound modem over a traciever controlled by rigctld. Its power is that almost any functionality can be added via plugins.
 

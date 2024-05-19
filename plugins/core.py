@@ -1,7 +1,7 @@
-# inherits from ARDOPCFPlugin
-from ARDOPCFPlugin import ARDOPCFPlugin
+# inherits from Plugin
+from hamChatPlugin import hamChatPlugin
 
-class Core(ARDOPCFPlugin):
+class Core(hamChatPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)
 
@@ -14,7 +14,7 @@ class Core(ARDOPCFPlugin):
             'name': 'Core',
             'version': host_interface.version,
             'description': self.info,
-            'protocol_identifier': '',
+            'transport': '',
             'handlers': [],
             'protocol_fields': [],
             'depends_on': [],

@@ -1,10 +1,10 @@
-# inherits from ARDOPCFPlugin
-from ARDOPCFPlugin import ARDOPCFPlugin
+# inherits from hamChatPlugin
+from hamChatPlugin import hamChatPlugin
 import tkinter as tk
 from tkinter import filedialog
 
 
-class SimpleFileTransfer(ARDOPCFPlugin):
+class SimpleFileTransfer(hamChatPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)
         self.info = f"""
@@ -16,7 +16,7 @@ class SimpleFileTransfer(ARDOPCFPlugin):
             'name': 'Simple File Transfer',
             'version': '0.1',
             'description': self.info,
-            'protocol_identifier': 'FileXfr',
+            'transport': '',
             'handlers': ['FileXfr'],
             'expected_header': "SENDER:FileXfr:0.1:RECIPIENTS:FILENAME:FILESIZE:BEGIN:",
             'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
@@ -73,7 +73,7 @@ class SimpleFileTransfer(ARDOPCFPlugin):
         # SENDER:FileXfr:0.1:RECIPIENTS:{your fields here}BEGIN:
         callsign = self.host_interface.settings['callsign']
         recipients = self.host_interface.recipients.get()
-        proto = self.definition['protocol_identifier']
+        proto = self.definition['transport']
         proto_ver = self.definition['version']
         with open(filename, 'rb') as f:
             file = f.read()

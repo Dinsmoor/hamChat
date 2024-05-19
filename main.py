@@ -18,7 +18,7 @@ This application is a work in progress and is not yet complete.
 """
 
 
-class ARDOPCFGUI(tk.Tk):
+class HamChat(tk.Tk):
     def __init__(self):
         """
         This is the main application window for the ARDOP Chat application.
@@ -37,7 +37,7 @@ class ARDOPCFGUI(tk.Tk):
         """
         tk.Tk.__init__(self)
         self.version = '0.1'
-        self.title("ARDOPCF Chat")
+        self.title("hamChat")
         self.resizable(True, True)
         self.geometry("1000x700")
         self.settings = {
@@ -53,7 +53,7 @@ class ARDOPCFGUI(tk.Tk):
         # kill yourself.
         
         # hopefully not a race condition here :cringe:
-        self.plugins = PluginManager(host_interface=self, plugin_folder='ARDOPCF_Plugins')
+        self.plugins = PluginManager(host_interface=self)
         self.ardop = ARDOPCF(host_interface=self)
         try:
             self._load_settings_from_file()
@@ -75,6 +75,9 @@ class ARDOPCFGUI(tk.Tk):
         # warn the user of any current known bugs
         #self.display_warning_box("Current known bugs:\nThe window won't want to close\nwhen you press the close button.\nYou may need to do ctrl+c in the terminal.")
 
+    def register_transports(self):
+        '''This will get all plugins that provide 'transport' and register them with this ui'''
+        pass
 
     def _save_settings_to_file(self):
         with open('chat_settings.json', 'w') as f:
@@ -356,5 +359,5 @@ class EntryWithPlaceholder(tk.Entry):
             self.delete(0, tk.END)
 
 if __name__ == '__main__':
-    ardop_chat_ui = ARDOPCFGUI()
-    ardop_chat_ui.mainloop()
+    hamChatUI = HamChat()
+    hamChatUI.mainloop()
