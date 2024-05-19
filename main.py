@@ -47,6 +47,7 @@ class ARDOPCFGUI(tk.Tk):
             'fec_repeats': 1,
             'use_message_history': 1
         }
+        self.message_history = []
 
         self.die = threading.Event()
         # kill yourself.
@@ -63,7 +64,7 @@ class ARDOPCFGUI(tk.Tk):
         
         # make sure the sockets are closed when the application is closed
         self.protocol("WM_DELETE_WINDOW", self.ardop.close_all)
-        self.message_history = []
+        
         
         # these two need to be on their own threads
         self.data_listener = threading.Thread(target=self.listen_for_data)
