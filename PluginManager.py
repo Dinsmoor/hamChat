@@ -68,11 +68,26 @@ class PluginManager:
             print(f"{plugin.definition.get('name')}:{plugin.definition.get('version')} by {plugin.definition.get('author')}")
             print(plugin.info)
 
-    def on_data_received(self, data: dict):
-        '''Only plugins that declare a handler for the protocol_identifier in the data will receive it, this
-        function here should not be called directly by the main application or any plugin.'''
+
+    def on_data_received(self, header, payload):
+        '''Only plugins that declare a handler for the protocol_identifier in the data will receive it.'''
         for plugin in self.plugins:
-            plugin.on_data_received(data)
+            send_to_plugin = False
+            for handler in plugin.definition['handlers']:
+                # some plugins want to listen to all data, some only to specific data
+                if handler == 'ALL':
+                    send_to_plugin = True
+                elif handler in header.split(b':')[1].decode():
+                    remote_plugin_version = header.split(b':')[2].decode()
+                    if plugin.definition['version'] != remote_plugin_version:
+                        self.host_interface.display_warning_box(f'''Local plugin {plugin.definition.get("name")} has version mismatch
+                                                with remote plugin {remote_plugin_version}.\n 
+                                                Data may not be handled correctly.''')
+                    # we have a plugin that can handle this data, it will do
+                    # whatever in this interface it needs to do without further handling here.
+                    send_to_plugin = True
+            if send_to_plugin:
+                plugin.on_data_received({'header': header, 'payload': payload})
     
     def on_command_received(self, command: str):
         for plugin in self.plugins:
@@ -81,14 +96,6 @@ class PluginManager:
     def on_data_loaded_into_buffer(self, data: bytes):
         for plugin in self.plugins:
             plugin.on_data_loaded_into_buffer(data)
-    
-    def on_file_loaded_into_buffer(self, filename):
-        for plugin in self.plugins:
-            plugin.on_file_loaded_into_buffer(filename)
-    
-    def on_file_saved_to_disk(self, filename):
-        for plugin in self.plugins:
-            plugin.on_file_saved_to_disk(filename)
     
     def on_transmit_buffer(self):
         for plugin in self.plugins:
@@ -105,10 +112,6 @@ class PluginManager:
     def on_unkey_transmitter(self):
         for plugin in self.plugins:
             plugin.on_unkey_transmitter()
-
-    def on_initialize(self):
-        for plugin in self.plugins:
-            plugin.on_initialize()
     
     def on_ui_create_settings_menu(self):
         for plugin in self.plugins:
@@ -125,3 +128,7 @@ class PluginManager:
     def on_ui_ardop_state_update(self):
         for plugin in self.plugins:
             plugin.on_ui_ardop_state_update()
+    
+    def on_shutdown(self):
+        for plugin in self.plugins:
+            plugin.on_shutdown()

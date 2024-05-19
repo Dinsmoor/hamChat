@@ -84,4 +84,3 @@ class SimpleFileTransfer(ARDOPCFPlugin):
             data = header + file + footer
             self.host_interface.ardop.append_bytes_to_buffer(data)
         self.host_interface.write_message(f"{filename} added to buffer, {filesize} bytes")
-

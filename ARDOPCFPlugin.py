@@ -26,7 +26,7 @@ class ARDOPCFPlugin:
             'description': self.info,
             # this is what tells the plugin manager to route data to this plugin
             'protocol_identifier': 'TemPlate',
-            'handlers': ['TemPlate', 'PROTOCOL_IDENTIFIER2', 'PROTOCOL_IDENTIFIER3'],
+            'handlers': ['TemPlate', 'ALL', 'PROTOCOL_IDENTIFIER3'],
             'expected_header': "CALLSIGN:TemPlate:0.1:BEGIN:", # just so it's clear what the header should look like
             'depends_on': [{'plugin': 'Some Other Plugin Name', 'version': '0.1'}],
         }
@@ -76,13 +76,10 @@ class ARDOPCFPlugin:
         '''This method is called when the TNC is unkeyed.'''
         pass
     
-    def on_initialize(self):
-        '''This method is called when the TNC is initialized.'''
-        pass
-    
     def on_ui_create_settings_menu(self):
         '''This method is called when the settings menu is created.
-        This is where the plugin can add any settings that it needs to the settings menu.'''
+        This is where the plugin can add any settings that it needs to the main settings menu.
+        It would be a better practice to create a separate settings menu for your plugin.'''
         pass
     
     def on_ui_save_settings(self) -> dict:
@@ -102,19 +99,13 @@ class ARDOPCFPlugin:
         etc...'''
         pass
 
-    def on_plugin_enabled(self):
-        '''Plugins are dynamically loaded and unloaded, so this method
-        is called when the plugin is enabled'''
-        pass
-
-    def on_plugin_disabled(self):
-        '''Plugins are dynamically loaded and unloaded, so this method
-        is called when the plugin is disabled'''
-        pass
-
     def on_ui_ardop_state_update(self):
         '''This method is called when the ARDOP state is updated, usually every 200 ms
         Use this to update any UI elements that need to be updated with the ARDOP state or
         with your plugin state.'''
+        pass
+    
+    def on_shutdown(self):  
+        '''This method is called when the program is being shut down.'''
         pass
     

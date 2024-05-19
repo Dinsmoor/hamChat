@@ -72,7 +72,7 @@ class ARDOPCFGUI(tk.Tk):
         self.ui_updater.start()
 
         # warn the user of any current known bugs
-        self.display_warning_box("Current known bugs:\nThe window won't want to close\nwhen you press the close button.\nYou may need to do ctrl+c in the terminal.")
+        #self.display_warning_box("Current known bugs:\nThe window won't want to close\nwhen you press the close button.\nYou may need to do ctrl+c in the terminal.")
 
 
     def _save_settings_to_file(self):
@@ -202,6 +202,8 @@ class ARDOPCFGUI(tk.Tk):
         message = self.entry.get()
         sender = self.settings['callsign']
         recipients = self.recipients.get().strip()
+        if recipients == "NOCALL,NO2CALL":
+            recipients = ""
         if not recipients:
             recipients = "ALL"
         # If this was in a plugin, this format would be the same except for any
@@ -219,10 +221,11 @@ class ARDOPCFGUI(tk.Tk):
     
     def listen_for_data(self):
         while not self.die.is_set():
-            print("Listening for data...")
-            # This will block until data is received.
-            # Bytes returned have the format:
-            data: bytes = self.ardop.recieve_from_data_buffer()
+            try:
+                data: bytes = self.ardop.recieve_from_data_buffer()
+            except OSError:
+                # we are shutting down
+                break
 
             if b":BEGIN:" in data:
                 print(f"Received data: {data}")
@@ -236,32 +239,23 @@ class ARDOPCFGUI(tk.Tk):
                     recipents = header.split(b":")[3].decode()
                     message = f"{sender}->{recipents}: {payload.decode()}"
                     self.write_message(message)
-                
-                for plugin in self.plugins.plugins:
-                    for handler in plugin.definition['handlers']:
-                        if handler in header.split(b':')[1].decode():
-                            remote_plugin_version = header.split(b':')[2].decode()
-                            if plugin.definition['version'] != remote_plugin_version:
-                                self.display_warning_box(f'''Local plugin {plugin.__class__.__name__} has version mismatch
-                                                        with remote plugin {remote_plugin_version}.\n 
-                                                        Data may not be handled correctly.''')
-                            # we have a plugin that can handle this data, it will do
-                            # whatever in this interface it needs to do without further handling here.
-                            plugin.on_data_received({'header': header, 'payload': payload})
-                
-                print(f"Received data: {data}")
+          
+                self.plugins.on_data_received(header, payload)
                 self.save_message_history()
     
     def update_ui_ardop_state(self):
-        while not self.die.is_set():
-            self.ardop.cmd_response(command='STATE', wait=False)
-            self.ardop.cmd_response(command='BUFFER', wait=False)
-            self.ardop_state_string.set(self.ardop.state['state'])
-            time_to_send = self.estimate_minutes_to_send()
-            time_to_send = int(time_to_send)
-            self.ardop_buffer_string.set(f"{self.ardop.state['buffer']} : {time_to_send}m @ {self.settings['fec_mode']}")
-            self.plugins.on_ui_ardop_state_update()
-            time.sleep(0.5) # update every half second
+        try:
+            while not self.die.is_set():
+                self.ardop.cmd_response(command='STATE', wait=False)
+                self.ardop.cmd_response(command='BUFFER', wait=False)
+                self.ardop_state_string.set(self.ardop.state['state'])
+                time_to_send = self.estimate_minutes_to_send()
+                time_to_send = int(time_to_send)
+                self.ardop_buffer_string.set(f"{self.ardop.state['buffer']} : {time_to_send}m @ {self.settings['fec_mode']}")
+                self.plugins.on_ui_ardop_state_update()
+                time.sleep(0.5) # update every half second
+        except KeyboardInterrupt:
+            return
     
     def create_settings_menu(self):
         self.settings_menu = tk.Toplevel(self)

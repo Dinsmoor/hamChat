@@ -22,18 +22,6 @@ class ARDOPCF:
             print("Pointless to continue without a connection to the ARDOPC client.")
             print("Exiting.")
             exit(1)
-        try:
-            self.sock_rigctld = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock_rigctld.connect(('localhost', 4532))
-        except ConnectionRefusedError:
-            print("Could not connect to rigctld on port 4532 on this machine. Is it running?")
-            print("You will not be able to key the transmitter.")
-            print("If you are using VOX (you SHOULD use CAT), you can type 'y' and press enter to ignore this error.")
-            choice = input("Press enter to continue.")
-            if choice != 'y':
-                print("Exiting.")
-                exit(1)
-            self.sock_rigctld = None
 
         # FIXME: this is redudant with self.state
         self.callsign = 'N0CALL'
@@ -124,24 +112,16 @@ class ARDOPCF:
 
 
     def key_transmitter(self):
-        if self.sock_rigctld:
-            self.sock_rigctld.sendall(b'T 1\n')
-            self.host_interface.plugins.on_key_transmitter()
-        else:
-            print("Cannot key transmitter, rigctld not connected")
+        self.host_interface.plugins.on_key_transmitter()
     
     def unkey_transmitter(self):
-        if self.sock_rigctld:
-            self.sock_rigctld.sendall(b'T 0\n')
-            self.host_interface.plugins.on_unkey_transmitter()
-        else:
-            print("Cannot unkey transmitter, rigctld not connected")
+        self.host_interface.plugins.on_unkey_transmitter()
     
     def send_text_to_buffer(self, message : str):
         # this application only uses FEC mode (for now)
         # data format is <2 bytes for length><FEQ or ARQ><data>
         data = 'FEC' + message
-        if len(data) > 2000:
+        if len(data) > 1000:
             print("Message too long, TNC cannot send.")
             return(False)
         try:
@@ -176,6 +156,7 @@ class ARDOPCF:
         self.cmd_response(command='FECSEND TRUE', wait=False)
         self.cmd_response(command='FECSEND TRUE', wait=False)
         self.host_interface.entry['state'] = 'normal'
+        self.host_interface.plugins.on_transmit_buffer()
 
     def clear_buffer(self):
         self.cmd_response(command='PURGEBUFFER', wait=False)
@@ -201,8 +182,7 @@ class ARDOPCF:
 
         all_frame_data = b''
         timeout = 7
-        # every series of frames, initially just wait forever
-        listen_time = None
+        listen_time = 0.1
         start_time = time.time()
 
         while not self.stop_event.is_set():
@@ -238,14 +218,13 @@ class ARDOPCF:
                 all_frame_data += this_frame_data
                 if this_frame_data.endswith(b':END:'):
                     break
-                listen_time = 0.1
 
         return(all_frame_data)
 
     def abort(self):
         # abort actually sucks and doesn't work immediately
         # it's better to clear the buffer with PURGEBUFFER,
-        # this makes the TNC stop transmitting immediately, much better than ABORT
+        # this makes the TNC stop transmitting, much better than ABORT
         self.cmd_response(command="ABORT", wait=False)
 
     def cmd_response(self, command=None, wait=False) -> str:
@@ -274,45 +253,36 @@ class ARDOPCF:
 
             try:
                 for entry in self.command_response_history:
-                    # might be a problem if a plugin starts blocking the main thread
-                    # I am not touching it because it was a pain to get working.
-                    # later, I'll stop removing the entry until the plugins get a copy of the command
-                    # right now, its not implemented.
-                    #self.host_interface.plugins.on_command_received(entry)
+                    # Everything the first things in this group are very time sensitive
                     if ('PTT TRUE' in entry) or ('T T' in entry):
                         self.state['ptt'] = True
-                        self.key_transmitter()
-                        self.command_response_history.remove(entry)
+                        self.host_interface.plugins.on_key_transmitter()
                     elif ('PTT FALSE' in entry) or ('T F' in entry):
                         self.state['ptt'] = False
-                        self.unkey_transmitter()
-                        self.command_response_history.remove(entry)
+                        self.host_interface.plugins.on_unkey_transmitter()
                     elif entry.startswith('BUFFER'):
                         self.state['buffer'] = entry.split()[1]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('STATE'):
                         self.state['state'] = entry.split()[1]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('FECSEND'):
-                        self.command_response_history.remove(entry)
+                        pass
                     elif entry.startswith('MYCALL'):
                         self.state['mycall'] = entry.split()[2]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('GRIDSQUARE'):
                         self.state['gridsquare'] = entry.split()[2]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('FECMODE'):
                         self.state['fec_mode'] = entry.split()[2]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('FECREPEATS'):
                         self.state['fec_repeats'] = entry.split()[2]
-                        self.command_response_history.remove(entry)
                     elif entry.startswith('PROTOCOLMODE'):
                         self.state['protocol_mode'] = entry.split()[2]
-                        self.command_response_history.remove(entry)
                     else:
                         #print(f"Unhandled command response: {entry}")
-                        self.command_response_history.remove(entry)
+                        pass
+                    self.command_response_history.remove(entry)
+                    # plugins might really interfere with this thread, it may be better
+                    # to spawn a thread when this is called. Will test and change as needed.
+                    self.host_interface.plugins.on_command_received(entry)
             except TypeError:
                 # this is a catch for the case where the command_response_history is None
                 # usually at program termination
@@ -320,7 +290,8 @@ class ARDOPCF:
 
     def close_all(self):
         print("Halting transmission, closing all sockets, and exiting")
-        self.unkey_transmitter()
+        self.host_interface.plugins.on_unkey_transmitter()
+        self.host_interface.plugins.on_shutdown()
         self.stop_event.set()
         self.host_interface.die.set()
         # this is a hack to get the command_response thread to exit
@@ -329,7 +300,4 @@ class ARDOPCF:
         self.command_listen.join()
         self.sock_cmd.close()
         self.sock_data.close()
-        if self.sock_rigctld:
-            self.sock_rigctld.close()
-        
         sys.exit()

@@ -1,4 +1,6 @@
-## ARDOPCF FEC CHAT (soon to be called hamChat once the plugin system is perfected)
+# ARDOPCF FEC CHAT
+
+(will be called hamChat once the plugin system is perfected, and the ardop modem is turned into a plugin)
 
 *Consider this software unstable and subject to extreme changes*
 
@@ -6,11 +8,11 @@ This program by itself provides keyboard-to-keyboard text chat using the ARDOPCF
 
 There is an included example plugin that provides very basic file transfer, with no guarantee of completeness or correctness.
 
-## Usage
+# Usage
 
 Have the following software running
 - ardopcf
-- rigctld (if you use vox just don't specify a rig and it will be a dummy port)
+- rigctld (optional)
 
 then run hamchat with `python3 main.py`
 
@@ -22,13 +24,13 @@ such as whenever the UI state is updated or if the TNC recieves a data packet th
 
 Plugins can add new windows or widgets, directly issue commands to the TNC, or do pretty much anything.
 
-# Plugin Rules
+## Plugin Rules
 1. Plugins files (python) go in the ARDOPCF_Plugins folder
 2. All classes in that folder that inherit from `ARDOPCFPlugin` will be loaded.
 3. Plugin class initialization must accept one argument, which is the GUI instance object.
    - See plugin folder for examples
 
-# Ideas for Plugins
+## Ideas for Plugins
 - Over-the-air Plugin sharing
   - Plugin mismatch can be resolved via file transfer
 - Data ACK
@@ -41,8 +43,8 @@ Plugins can add new windows or widgets, directly issue commands to the TNC, or d
   - Use rigctld to hop around frequencies waiting to be 'called'
 - ARQ mode
   - More robust for 1-on-1
-- Rig Control
-  - Currentl rigctld is accessed as part of the main program, but this should be moved to a plugin.
+- Advanced Rig Control
+  - 
 - Data Mode Negotiation
   - If you have a large file, auto negotiate the fastest data rate avaliable for the channel.
 - Data Relay Request
@@ -56,7 +58,7 @@ Plugins can add new windows or widgets, directly issue commands to the TNC, or d
 - BBS Server
   - If clients connect to you, you can post and respond to messages.
 
-# Non-plugin ideas that would significantly change how this program and plugins work
+## Non-plugin ideas that would significantly change how this program and plugins work
 - Other Transports besides ARDOP
   - Would require a bit of a rewrite of the frontend, but you could have a TCP/VARA/Packet transports while still getting to use the plugin system. Interfacing with ARDOP would become its own plugin for example, avalibale
   transports would be avaliable from a drop-down. Each Transport would have its own configuration menu.
