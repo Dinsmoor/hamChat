@@ -2,17 +2,14 @@ import tkinter as tk
 import threading
 import time
 import json
-from ARDOPCF import ARDOPCF
 from PluginManager import PluginManager
+from hamChatPlugin import hamChatPlugin
+import sys
 
 info = """
-This application is a simple chat application that interfaces
-with the ARDOPC client the ARDOPC client is a TNC that uses the
-ARDOP protocol and is used for digital communications over any
-audio band, but is most commonly used in amateur radio for HF
-and VHF communications.
-It uses tkinter for the GUI and the ARDOPCF client for the TNC,
-and most features are extensible through the use of plugins.
+This program is a desktop application that allows amatuer
+radio operators to do almost whatever they want within the
+context of text or binary data transfer, via a plugin system.
 
 This application is a work in progress and is not yet complete.
 """
@@ -36,57 +33,62 @@ class HamChat(tk.Tk):
         All other indexes until ":BEGIN:" are reserved for a plugin to use as it sees fit.
         """
         tk.Tk.__init__(self)
+        self.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.version = '0.1'
         self.title("hamChat")
         self.resizable(True, True)
-        self.geometry("1000x700")
+        self.geometry("800x500")
         self.settings = {
             'callsign': 'N0CALL',
             'gridsquare': 'AA00AA',
-            'fec_mode': '4FSK.200.50S',
-            'fec_repeats': 1,
+            'selected_transport': 'ARDOP',
             'use_message_history': 1
         }
+        self._load_settings_from_file()
         self.message_history = []
+        self.plugin_preload_messages = []
 
         self.die = threading.Event()
-        # kill yourself.
+        self.ui_ready = threading.Event()
+        self.transport_status_ready = threading.Event()
+        self.transport_status_frame = tk.Frame(self)
         
-        # hopefully not a race condition here :cringe:
-        self.plugins = PluginManager(host_interface=self)
-        self.ardop = ARDOPCF(host_interface=self)
-        try:
-            self._load_settings_from_file()
-            self.ardop.init_tnc()
-        except FileNotFoundError:
-            pass
+
+        # there is a race condition between the plugins needing to access to the ui and the ui being created
+        self.plugMgr = PluginManager(host_interface=self)
+        self.plugMgr.load_plugins('plugins')
+        self.transport = self.get_selected_transport()
+        
         self.create_widgets()
-        
-        # make sure the sockets are closed when the application is closed
-        self.protocol("WM_DELETE_WINDOW", self.ardop.close_all)
-        
-        
+        self.ui_ready.set()
+
         # these two need to be on their own threads
         self.data_listener = threading.Thread(target=self.listen_for_data)
         self.data_listener.start()
-        self.ui_updater = threading.Thread(target=self.update_ui_ardop_state)
-        self.ui_updater.start()
+        self.transport_status_frame_thread = threading.Thread(target=self.update_transport_state_frame)
+        self.transport_status_frame_thread.start()
+        # this is very important for making sure self.transport is pointing to the correct plugin
+        # will run in main thread, but will be updated by the transport_status_frame thread
+        self.update_ui_transport_state()
 
-        # warn the user of any current known bugs
-        #self.display_warning_box("Current known bugs:\nThe window won't want to close\nwhen you press the close button.\nYou may need to do ctrl+c in the terminal.")
 
-    def register_transports(self):
-        '''This will get all plugins that provide 'transport' and register them with this ui'''
-        pass
+    def get_selected_transport(self) -> hamChatPlugin:
+        # this is set by the menu bar
+        for plugin in self.plugMgr.plugins:
+            if plugin.definition['transport'] == self.settings['selected_transport']:
+                return plugin
 
     def _save_settings_to_file(self):
         with open('chat_settings.json', 'w') as f:
             f.write(json.dumps(self.settings))
 
     def _load_settings_from_file(self):
-        with open('chat_settings.json', 'r') as f:
-            self.settings = json.loads(f.read())
-        self.apply_settings()
+        try:
+            with open('chat_settings.json', 'r') as f:
+                self.settings.update(json.loads(f.read()))
+        except FileNotFoundError:
+            # if the file doesn't exist, we will just use the defaults
+            pass
 
     def save_message_history(self):
         with open('message_history.txt', 'w') as f:
@@ -96,87 +98,138 @@ class HamChat(tk.Tk):
     def _load_message_history(self):
         with open('message_history.txt', 'r') as f:
             self.message_history = f.readlines()
-
-    def create_widgets(self):
-
-        self.chat_frame = tk.Frame(self)
-
-        self.message_box = tk.Text(self.chat_frame, width=60, height=20)
-        self.scrollbar = tk.Scrollbar(self.chat_frame, command=self.message_box.yview)
-        self.message_box.config(yscrollcommand=self.scrollbar.set)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.message_box.config(wrap=tk.WORD)
         
+    def _put_message_history_in_message_box(self):
         if self.settings['use_message_history']:
+            self.message_box.config(state=tk.NORMAL)
             try:
                 self._load_message_history()
                 for message in self.message_history:
                     self.message_box.insert(tk.END, message)
             except FileNotFoundError:
                 pass
-        # message box should not be editable, we will need to toggle this to update
-        self.message_box.config(state=tk.DISABLED)
+            self.message_box.config(state=tk.DISABLED)
 
-        self.message_box.pack(fill=tk.BOTH, expand=True)
-        self.entry_label = tk.Label(self.chat_frame, text="Enter Message:")
-        self.entry_label.pack()
-        self.entry = tk.Entry(self.chat_frame, width=60)
-        self.entry.bind("<Return>", lambda event: self.send_chat_message())
-        self.entry.pack(fill=tk.X)
-
-        self.recipient_label = tk.Label(self.chat_frame, text="Recipient Callsigns:")
-        self.recipient_label.pack()
-        self.recipients = EntryWithPlaceholder(self.chat_frame, width=60, placeholder="NOCALL,NO2CALL")
-        self.recipients.pack(fill=tk.X)
-
-        self.chat_frame.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
-
-
-        self.native_button_frame = tk.Frame(self)
-        self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message)
-        # disable the send button until the user enters a message
-        self.send_button['state'] = 'disabled'
-        # enable the chat send button when the user types something
-        self.entry.bind("<Key>", lambda event: self.send_button.config(state='normal'))
-        self.send_button.pack(side=tk.LEFT)
-
-        self.clear_buffer_button = tk.Button(self.native_button_frame, text="Clear Buffer/Stop", command=self.ardop.clear_buffer)
-        self.clear_buffer_button.pack(side=tk.LEFT)
-
-        self.settings_button = tk.Button(self.native_button_frame, text="Settings", command=self.create_settings_menu)
-        self.settings_button.pack(side=tk.LEFT)
-
-        self.info_button = tk.Button(self.native_button_frame, text="About", command=self.display_info_box)
-        self.info_button.pack(side=tk.LEFT)
-        self.native_button_frame.pack()
-
-        self.plugins_frame = tk.Frame(self)
-
-
-        self.plugins.on_ui_create_widgets()
-
-
-        self.plugins_frame.pack()
-
-        self.status_bar_frame = tk.Frame(self)
-        self.ardop_state_label = tk.Label(self.status_bar_frame, text="TNC State:")
-        self.ardop_state_label.grid(row=0, column=0)
-        self.ardop_state_string = tk.StringVar()
-        self.ardop_state = tk.Label(self.status_bar_frame, textvariable=self.ardop_state_string)
-        self.ardop_state.grid(row=0, column=1)
-
-        self.ardop_buffer_string = tk.StringVar()
-        self.ardop_buffer_label = tk.Label(self.status_bar_frame, text="DATA Buffer:")
-        self.ardop_buffer_label.grid(row=1, column=0)
-        self.ardop_buffer = tk.Label(self.status_bar_frame, textvariable=self.ardop_buffer_string)
-        self.ardop_buffer.grid(row=1, column=1)
-        self.status_bar_frame.pack(side=tk.BOTTOM)
-
-    def write_message(self, message: str):
+    def delete_message_history(self):
         self.message_box.config(state=tk.NORMAL)
+        self.message_box.delete(1.0, tk.END)
+        self.message_box.config(state=tk.DISABLED)
+        self.message_history = []
+        self.save_message_history()
+
+    def create_menubar(self):
+        self.menubar = tk.Menu(self)
+        self.filemenu = tk.Menu(self.menubar, tearoff=0)
+        self.filemenu.add_command(label="Settings", command=self.create_settings_menu)
+        self.filemenu.add_separator()
+        self.filemenu.add_command(label="Exit", command=self.shutdown)
+        self.menubar.add_cascade(label="File", menu=self.filemenu)
+
+        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
+        self.helpmenu.add_command(label="About", command=self.display_info_box)
+        self.menubar.add_cascade(label="Help", menu=self.helpmenu)
+
+        self.transportmenu = tk.Menu(self.menubar, tearoff=0)
+        for plugin in self.plugMgr.plugins:
+            if plugin.definition.get('transport'):
+                self.transportmenu.add_command(label=plugin.definition['name'], command=lambda plugin=plugin: self.update_selected_transport(plugin.definition['transport']))       
+        self.menubar.add_cascade(label="Transports", menu=self.transportmenu)
+
+        self.config(menu=self.menubar)
+
+    def update_selected_transport(self, transport):
+        self.settings['selected_transport'] = transport
+        self.transport = self.get_selected_transport()
+
+    def create_chat_frame(self):
+        # the main frame for the chat window, will hold message box, scroll bar, and entry area
+        self.chat_frame = tk.Frame(self.top_section, bd=2, relief=tk.SUNKEN)
+        self.chat_frame.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+
+        # this frame will hold the message/recipients entry and the send/clear buttons
+        self.chat_user_entry_container = tk.Frame(self.chat_frame, bd=2, relief=tk.SUNKEN)
+        self.chat_user_entry_container.pack(side=tk.TOP, fill=tk.X)
+
+        # this frame holds the message entry and recipients entry (and their labels)
+        self.chat_entry_area_frame = tk.Frame(self.chat_user_entry_container, bd=2, relief=tk.SUNKEN)
+        self.chat_entry_area_frame.pack(side=tk.LEFT)
+
+        # this frame holds the send and clear buttons, and should be right next to the chat entry area
+        self.native_button_frame = tk.Frame(self.chat_user_entry_container, bd=2, relief=tk.SUNKEN)
+        self.native_button_frame.pack(side=tk.RIGHT)
+
+        self.message_box = tk.Text(self.chat_entry_area_frame, width=60, height=20)
+        self.scrollbar = tk.Scrollbar(self.chat_user_entry_container, command=self.message_box.yview)
+        self.message_box.config(wrap=tk.WORD, state=tk.DISABLED, yscrollcommand=self.scrollbar.set)
+        self.message_box.see(tk.END)
+        self.message_box.pack(fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._put_message_history_in_message_box()
+
+        tk.Label(self.chat_entry_area_frame, text="Enter Message:").pack()
+        self.chat_entry = tk.Entry(self.chat_entry_area_frame, width=60)
+        self.chat_entry.bind("<Return>", lambda event: self.send_chat_message())
+        self.chat_entry.bind("<Key>", lambda event: self.send_button.config(state=tk.NORMAL))
+        self.chat_entry.pack(fill=tk.X)
+        tk.Label(self.chat_entry_area_frame, text="Recipient Callsigns:").pack()
+        self.recipients_entry = EntryWithPlaceholder(self.chat_entry_area_frame, width=60, placeholder="NOCALL,NO2CALL")
+        self.recipients_entry.pack(fill=tk.X)
+
+        self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message, state=tk.DISABLED)
+        self.send_button.pack()
+        self.clear_buffer_button = tk.Button(self.native_button_frame, text="Clear", command=self.delete_message_history)
+        self.clear_buffer_button.pack()
+
+    def create_plugins_frame(self):
+        self.plugins_canvas = tk.Canvas(self.top_section, bd=2, relief=tk.SUNKEN)
+        
+        self.plugins_frame = tk.Frame(self.plugins_canvas)
+        self.plugins_frame_scrollbar = tk.Scrollbar(self.plugins_canvas, orient="vertical", command=self.plugins_canvas.yview)
+
+        self.plugins_canvas.create_window((0, 0), window=self.plugins_frame, anchor="nw")
+        self.plugins_canvas.configure(yscrollcommand=self.plugins_frame_scrollbar.set)
+
+        # Bind a function to configure the scroll region of the canvas
+        self.plugins_frame.bind("<Configure>", lambda e: self.plugins_canvas.configure(scrollregion=self.plugins_canvas.bbox("all")))
+
+        self.plugins_frame_scrollbar.pack(side="right", fill="y")
+        self.plugins_frame.pack(side="left", fill="both", expand=True, anchor="center")
+        self.plugins_canvas.pack(side="left", fill="both", expand=True)
+
+        self.plugMgr.create_plugin_frames(self.plugins_frame)
+        # add padding and basic style to all of the plugin frames
+        for widget in self.plugins_frame.winfo_children():
+            widget.pack_configure(pady=5)
+            widget.config(bd=2, relief=tk.GROOVE)
+            # add a separator between each plugin frame
+
+    def create_transport_status_frame(self):
+        # this will be updated by tk mainloop, and the selected transport will provide its contents
+        self.transport_status_frame_holder = tk.Frame(self, bd=2, relief=tk.SUNKEN, height=50)
+        self.transport_status_frame_holder.pack(fill=tk.X, expand=True)
+
+    def create_widgets(self):
+        self.create_menubar()
+        self.top_section = tk.Frame(self)
+        self.top_section.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
+        self.create_chat_frame()
+        self.create_plugins_frame()
+        self.create_transport_status_frame()
+
+    def print_to_chatwindow(self, message: str, save=False):
+        if not self.ui_ready.is_set():
+            self.plugin_preload_messages.append(message)
+            return
+        self.message_box.config(state=tk.NORMAL)
+        if self.plugin_preload_messages:
+            [message for message in self.plugin_preload_messages if message]
+            for message in self.plugin_preload_messages:
+                self.message_box.insert(tk.END, message+'\n')
+            self.plugin_preload_messages = []
         self.message_box.insert(tk.END, message+'\n')
-        if self.settings['use_message_history']:
+        if self.settings['use_message_history'] and save:
             self.message_history.append(message)
+            # not sure if this works right.
             if len(self.message_history) > 500:
                 self.message_history.pop(0)
         self.message_box.config(state=tk.DISABLED)
@@ -189,9 +242,6 @@ class HamChat(tk.Tk):
         info_label.pack()
         close_button = tk.Button(info_box, text="Close", command=info_box.destroy)
         close_button.pack()
-    
-    def estimate_minutes_to_send(self):
-        return(int(self.ardop.state.get("buffer")) / self.ardop.rate_table[self.settings['fec_mode']])
 
     def display_warning_box(self, message):
         warning_box = tk.Toplevel(self)
@@ -203,9 +253,9 @@ class HamChat(tk.Tk):
         close_button.pack()
 
     def send_chat_message(self):
-        message = self.entry.get()
+        message = self.chat_entry.get()
         sender = self.settings['callsign']
-        recipients = self.recipients.get().strip()
+        recipients = self.recipients_entry.get().strip()
         if recipients == "NOCALL,NO2CALL":
             recipients = ""
         if not recipients:
@@ -214,22 +264,28 @@ class HamChat(tk.Tk):
         # additional fields that the plugin would need to add to the header.
         # the next three lines would be basically the same.
         data = f"{sender}:chat:{self.version}:{recipients}:BEGIN:{message}:END:"
-        self.ardop.append_bytes_to_buffer(data.encode())
-        self.ardop.transmit_buffer()
+        self.transport.append_bytes_to_buffer(data.encode())
+        # do plugins want the data that we are sending? Probably not, for now.
+        self.plugMgr.on_transmit_buffer()
 
-        self.entry.delete(0, tk.END)
+        self.chat_entry.delete(0, tk.END)
         # for our message box
-        self.write_message(f"{sender}->{recipients}: {message}")
+        self.print_to_chatwindow(f"{sender}->{recipients}: {message}", save=True)
         self.send_button['state'] = 'disabled'
         self.save_message_history()
-    
+
     def listen_for_data(self):
         while not self.die.is_set():
             try:
-                data: bytes = self.ardop.recieve_from_data_buffer()
+                # TODO: replace with a method in this class that will get data from
+                # the selected transport or all transports (TBD)
+                data: bytes = self.transport.on_get_data()
             except OSError:
                 # we are shutting down
                 break
+            # sometimes there is a timeout and we get a NoneType.
+            if not data:
+                continue
 
             if b":BEGIN:" in data:
                 print(f"Received data: {data}")
@@ -242,31 +298,36 @@ class HamChat(tk.Tk):
                     sender = header.split(b":")[0].decode()
                     recipents = header.split(b":")[3].decode()
                     message = f"{sender}->{recipents}: {payload.decode()}"
-                    self.write_message(message)
+                    self.print_to_chatwindow(message)
           
-                self.plugins.on_data_received(header, payload)
+                self.plugMgr.on_payload_recieved(header, payload)
                 self.save_message_history()
+            else:
+                # this is nonstandard data, we will just pass it to the plugins for them to parse
+                self.plugMgr.on_payload_recieved(header=None, payload=data)
+
+    def update_ui_transport_state(self):
+        # destroy widgets only if transport has changed
+
+        #for widget in self.transport_status_frame_holder.winfo_children():
+        #    widget.destroy()
+        # tell the currently selected transport to update the status frame
+        self.transport.on_ui_transport_status_frame(self.transport_status_frame_holder)
+
+        self.after(250, self.update_ui_transport_state)
     
-    def update_ui_ardop_state(self):
-        try:
-            while not self.die.is_set():
-                self.ardop.cmd_response(command='STATE', wait=False)
-                self.ardop.cmd_response(command='BUFFER', wait=False)
-                self.ardop_state_string.set(self.ardop.state['state'])
-                time_to_send = self.estimate_minutes_to_send()
-                time_to_send = int(time_to_send)
-                self.ardop_buffer_string.set(f"{self.ardop.state['buffer']} : {time_to_send}m @ {self.settings['fec_mode']}")
-                self.plugins.on_ui_ardop_state_update()
-                time.sleep(0.5) # update every half second
-        except KeyboardInterrupt:
-            return
-    
+    def update_transport_state_frame(self):
+        while not self.die.is_set():
+            self.transport.on_transport_state_update()
+            time.sleep(0.25)
+
     def create_settings_menu(self):
         self.settings_menu = tk.Toplevel(self)
         self.settings_menu.title("Settings")
         self.settings_menu.geometry("300x300")
 
         # central frame for the two side-by-side columns
+        # might be able to simplify later
         self.settings_frame = tk.Frame(self.settings_menu)
 
         # left side frame for user settings like callsign, gridsquare, etc.
@@ -290,22 +351,6 @@ class HamChat(tk.Tk):
         self.save_message_history_checkbutton = tk.Checkbutton(self.usersettings_frame, text="Save Message History", variable=self.save_message_history_var)
         self.save_message_history_checkbutton.pack()
 
-        # right side frame for ARDOP settings like FEC mode, repeats, etc.
-        self.ardopsettings_frame = tk.Frame(self.settings_frame)
-
-        self.fec_mode_label = tk.Label(self.ardopsettings_frame, text="FEC Mode")
-        self.fec_mode_label.pack()
-        self.fec_mode_var = tk.StringVar(self.ardopsettings_frame)
-        self.fec_mode_var.set(self.settings['fec_mode'])
-        self.fec_mode_menu = tk.OptionMenu(self.ardopsettings_frame, self.fec_mode_var, *self.ardop.fec_modes)
-        self.fec_mode_menu.pack()
-
-        self.fec_repeats_label = tk.Label(self.ardopsettings_frame, text="FEC Repeats")
-        self.fec_repeats_label.pack()
-        self.fec_repeats_entry = tk.Scale(self.ardopsettings_frame, from_=0, to=5, orient=tk.HORIZONTAL)
-        self.fec_repeats_entry.set(self.settings['fec_repeats'])
-        self.fec_repeats_entry.pack()
-
         # button box frame
         self.settingsbuttons_frame = tk.Frame(self.settings_menu)
         self.save_button = tk.Button(self.settingsbuttons_frame, text="Save", command=self.save_settings)
@@ -313,39 +358,30 @@ class HamChat(tk.Tk):
         self.cancel_button = tk.Button(self.settingsbuttons_frame, text="Cancel", command=self.settings_menu.destroy)
         self.cancel_button.pack(side=tk.RIGHT)
 
-        # allow plugins to add additional settings
-        self.plugins.on_ui_create_settings_menu()
-
         self.settings_frame.pack()
         self.usersettings_frame.pack(side=tk.LEFT)
-        self.ardopsettings_frame.pack(side=tk.RIGHT)
+        # plugins will have their own settings menus and saving/loading them.
+        # it's up to them to give themselves a button to open up their settings menu
+        # if their settings can't fit in their plugin frame entry.
         self.settingsbuttons_frame.pack()
-
-        
 
     def save_settings(self):
         self.settings['callsign'] = self.callsign_entry.get()
         self.settings['gridsquare'] = self.gridsquare_entry.get()
-        self.settings['fec_mode'] = self.fec_mode_var.get()
-        self.settings['fec_repeats'] = self.fec_repeats_entry.get()
         self.settings['use_message_history'] = self.save_message_history_var.get()
-        self.apply_settings()
-        print(self.settings)
         self._save_settings_to_file()
-        self.write_message(f"Client Settings Updated")
+        self.print_to_chatwindow(f"Client Settings Updated" )
         self.settings_menu.destroy()
-    
-    def apply_settings(self):
-        self.ardop.callsign = self.settings['callsign']
-        self.ardop.gridsquare = self.settings['gridsquare']
-        self.ardop.fec_mode = self.settings['fec_mode']
-        self.ardop.fec_repeats = self.settings['fec_repeats']
-        self.ardop.cmd_response(command=f'MYCALL {self.settings["callsign"]}', wait=False)
-        self.ardop.cmd_response(command=f'GRIDSQUARE {self.settings["gridsquare"]}', wait=False)
-        self.ardop.cmd_response(command=f'FECMODE {self.settings["fec_mode"]}', wait=False)
-        self.ardop.cmd_response(command=f'FECREPEATS {self.settings["fec_repeats"]}', wait=False)
-        self.plugins.on_ui_save_settings()
+        # tell transports/plugins that we have new settings
+        self.plugMgr.on_settings_update()
 
+    def shutdown(self):
+        print("Shutting Down...")
+        self.plugMgr.on_clear_buffer()
+        self.plugMgr.on_unkey_transmitter()
+        self.die.set()
+        self.plugMgr.on_shutdown()
+        sys.exit()
 
 class EntryWithPlaceholder(tk.Entry):
     def __init__(self, master=None, placeholder="PLACEHOLDER", **kwargs):

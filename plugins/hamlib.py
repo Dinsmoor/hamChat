@@ -2,7 +2,6 @@
 from hamChatPlugin import hamChatPlugin
 import tkinter as tk
 import socket
-import select
 
 class Hamlib(hamChatPlugin):
     def __init__(self, host_interface: object):
@@ -12,6 +11,10 @@ class Hamlib(hamChatPlugin):
         This plugin comminicates with the Hamlib library to control radios, via rigctld.
         On linux, you can start rigctld with the following command:
         rigctld -m 1234 -r /dev/ttyUSB0
+        Right now, this plugin only supports a single radio.
+        If you wanted multiple radios, you would need multiple copies of this plugin, but right
+        now there is no way to specify which radio you are talking to. Might patch that in later.
+        https://github.com/Dinsmoor/hamChat
         """
         self.definition = {
             'author': 'Tyler Dinsmoor/K7OTR',
@@ -21,11 +24,16 @@ class Hamlib(hamChatPlugin):
             'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
         }
         self.sock_rigctld = None
-        self.rigctld_host = tk.StringVar()
-        self.rigctld_port = tk.StringVar()
-        self.rigctld_host.set('localhost')
-        self.rigctld_port.set('4532')
-        # we will connect to the port when the ui is created
+        self.rigctld_host = 'localhost'
+        self.rigctld_port = '4532'
+        self.status = tk.StringVar()
+        self.configure_menu_error_message = "No error detected."
+        self.rigctld_host_setting = tk.StringVar()
+        self.rigctld_port_setting = tk.StringVar()
+        self.rigctld_host_setting.set(self.rigctld_host)
+        self.rigctld_port_setting.set(self.rigctld_port)
+        self.hamlib_status_label = tk.Label()
+        self.__open_rigctld_socket()
         
 
     def on_key_transmitter(self):
@@ -46,34 +54,49 @@ class Hamlib(hamChatPlugin):
         if self.sock_rigctld is not None:
             self.on_unkey_transmitter()
             self.sock_rigctld.close()
-            self.host_interface.write_message("Hamlib plugin shutting down.")
     
-    def on_ui_create_widgets(self):
-        self.hamlib_frame = tk.Frame(self.host_interface.plugins_frame)
-        self.hamlib_label = tk.Label(self.hamlib_frame, text=self.definition['name'])
-        self.hamlib_label.pack(side=tk.TOP)
-        self.hamlib_button = tk.Button(self.hamlib_frame, text="Configure", command=self._open_hamlib_config_window)
-        self.hamlib_button.pack(side=tk.LEFT)
+    def create_plugin_frame(self, tkParent):
+        self.hamlib_frame = tk.Frame(tkParent)
+        statusframe = tk.Frame(self.hamlib_frame)
+        statusframe.pack()
+        hamlib_label = tk.Label(statusframe, text=self.definition['name'])
+        hamlib_label.pack(side=tk.LEFT)
+        self.hamlib_status_label = tk.Label(statusframe, textvariable=self.status)
+        self.hamlib_status_label.pack(side=tk.RIGHT)
+        if self.status.get() == "Connected":
+            self.hamlib_status_label.config(fg='green')
+        hamlib_button = tk.Button(self.hamlib_frame, text="Configure", command=self._open_hamlib_config_window)
+        hamlib_button.pack(side=tk.BOTTOM)
         self.hamlib_frame.pack()
-        self.__open_rigctld_socket()
 
     
     def _open_hamlib_config_window(self):
         self.hamlib_config_window = tk.Toplevel()
         self.hamlib_config_window.title("Hamlib Configuration")
-        tk.Label(self.hamlib_config_window, text="Configure rigctld connection").pack()
-        self.rigctld_host_label = tk.Label(self.hamlib_config_window, text="Host:")
+        top_frame = tk.Frame(self.hamlib_config_window)
+        top_frame.pack(side=tk.TOP)
+        tk.Label(top_frame, text="Configure rigctld connection").pack()
+        
+        self.rigctld_host_label = tk.Label(top_frame, text="Host:")
         self.rigctld_host_label.pack(side=tk.LEFT)
-        self.rigctld_host_entry = tk.Entry(self.hamlib_config_window, textvariable=self.rigctld_host)
+        self.rigctld_host_entry = tk.Entry(top_frame, textvariable=self.rigctld_host_setting)
         self.rigctld_host_entry.pack(side=tk.LEFT)
-        self.rigctld_port_label = tk.Label(self.hamlib_config_window, text="Port:")
+        self.rigctld_port_label = tk.Label(top_frame, text="Port:")
         self.rigctld_port_label.pack(side=tk.LEFT)
-        self.rigctld_port_entry = tk.Entry(self.hamlib_config_window, textvariable=self.rigctld_port)
+        self.rigctld_port_entry = tk.Entry(top_frame, textvariable=self.rigctld_port_setting)
         self.rigctld_port_entry.pack(side=tk.LEFT)
-        self.hamlib_close_button = tk.Button(self.hamlib_config_window, text="Apply", command=self.__apply_hamlib_config)
+        self.hamlib_close_button = tk.Button(top_frame, text="Apply", command=self.__apply_hamlib_config)
         self.hamlib_close_button.pack(side=tk.LEFT)
+        status_label = tk.Label(self.hamlib_config_window, text=self.configure_menu_error_message)
+        status_label.pack()
 
     def __apply_hamlib_config(self):
+        # check if they are different from what they were, if not, we don't need to do anything except close the window
+        if self.rigctld_host == self.rigctld_host_entry.get() and self.rigctld_port == self.rigctld_port_entry.get():
+            self.hamlib_config_window.destroy()
+            return
+        self.rigctld_host = self.rigctld_host_entry.get()
+        self.rigctld_port = self.rigctld_port_entry.get()
         self.__open_rigctld_socket()
         self.hamlib_config_window.destroy()
 
@@ -86,17 +109,47 @@ class Hamlib(hamChatPlugin):
         # place dots in the frequency for readability
         response = response[:-6] + '.' + response[-6:-3] + '.' + response[-3:]
         return response
+    
+    def get_radio_frequency(self):
+        return self.__test_rigctld_connection()
+    
+    def set_radio_frequency(self, frequency: int):
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(f'F {frequency}\n'.encode())
+            return self.__test_rigctld_connection()
+        else:
+            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
+
+    def get_radio_mode(self):
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(b'm\n')
+            return self.sock_rigctld.recv(1024).decode().strip()
+        else:
+            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
+    
+    def set_radio_mode(self, mode: str):
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(f'M {mode}\n'.encode())
+            return self.sock_rigctld.recv(1024).decode().strip()
+        else:
+            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
 
     def __open_rigctld_socket(self):
         try:
             if self.sock_rigctld is not None:
                 self.sock_rigctld.close()
             self.sock_rigctld = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock_rigctld.connect((self.rigctld_host.get(), int(self.rigctld_port.get())))
-            frequency = self.__test_rigctld_connection()
-            self.host_interface.write_message(f"Connected to rigctld at {self.rigctld_host.get()}:{self.rigctld_port.get()}, radio frequency is {frequency} Hz.")
+            self.sock_rigctld.connect((self.rigctld_host, int(self.rigctld_port)))
+            self.__test_rigctld_connection()
+            self.status.set("Connected")
+            # make it green
+            self.hamlib_status_label.config(fg='green')
+            self.configure_menu_error_message = "No error detected."
         except Exception as e:
+            self.status.set("Error")
+            # make it red
+            self.hamlib_status_label.config(fg='red')
             error_type = type(e).__name__ 
             if error_type == "gaierror":
                 error_type = "an incorrect hostname or IP address"
-            self.host_interface.write_message(f"Could not connect to rigctld due to {error_type}. Please configure the plugin.")
+            self.configure_menu_error_message = f"Could not connect to rigctld due to {error_type}.\nPlease configure the plugin."
