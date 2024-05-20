@@ -345,8 +345,6 @@ class ARDOPCF(hamChatPlugin):
         # twice! because the TNC is a little finicky on first transmit
         self.cmd_response(command='FECSEND TRUE', wait=False)
         self.cmd_response(command='FECSEND TRUE', wait=False)
-        # TODO: make this play nice with other transport plugins
-        self.host_interface.entry['state'] = 'normal'
 
     def on_clear_buffer(self):
         self.cmd_response(command='PURGEBUFFER', wait=False)
