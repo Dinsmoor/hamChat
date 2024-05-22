@@ -393,7 +393,11 @@ class HamChat(tk.Tk):
             try:
                 # an annoying issue is if we start hamChat, and for example, ardop was already running and decoded some
                 # data, that data is sitting in the incoming buffer. We can clear it out, or try to read it.
-                data: bytes = self.transport.on_get_data()
+                if self.transport.is_ready():
+                    data: bytes = self.transport.on_get_data()
+                else:
+                    time.sleep(0.325)
+                    continue
             except OSError:
                 # we are shutting down
                 break
@@ -424,6 +428,7 @@ class HamChat(tk.Tk):
         
             self.plugMgr.on_payload_recieved(header=header, payload=payload)
             self.save_message_history()
+        print("hamChat Data Listener Thread Exiting...")
 
     def update_ui_transport_state(self):
         # tell the currently selected transport to update the status frame
@@ -435,6 +440,7 @@ class HamChat(tk.Tk):
         while not self.die.is_set():
             self.transport.on_transport_state_update()
             time.sleep(0.25)
+        print("hamChat Transport Status Frame Updater Thread Exiting...")
 
     def create_settings_menu(self):
         self.settings_menu = tk.Toplevel(self)
@@ -495,8 +501,8 @@ class HamChat(tk.Tk):
         print("Shutting Down...")
         self.plugMgr.on_clear_buffer()
         self.plugMgr.on_unkey_transmitter()
-        self.plugMgr.on_shutdown()
         self.die.set()
+        self.plugMgr.on_shutdown() 
         sys.exit()
 
 class EntryWithPlaceholder(tk.Entry):

@@ -84,7 +84,7 @@ class PluginManager:
             print(plugin.info)
 
     def __plugin_exception(self, method_called, plugin, exception, extra_info=None):
-        message = f"Plugin {plugin.definition.get('name')} had an exception: {exception}"
+        message = f"Plugin {plugin.definition.get('name')} had an exception: {exception} in {method_called}"
         if extra_info:
             message += f"\n{extra_info}"
         self.host_interface.display_warning_box(message)
@@ -190,6 +190,13 @@ class PluginManager:
                 plugin.on_get_data()
             except Exception as e:
                 self.__plugin_exception('on_get_data', plugin, e)
+    
+    def is_ready(self) -> bool:
+        for plugin in self.plugins:
+            try:
+                plugin.is_ready()
+            except Exception as e:
+                self.__plugin_exception('is_ready', plugin, e)
     
     def on_settings_update(self):
         for plugin in self.plugins:

@@ -166,6 +166,12 @@ class hamChatPlugin:
         The return value is expected to be bytes, absent any length
         or modem-specific headers, like FECFEC for ARDOP.'''
         pass
+
+    def is_ready(self) -> bool:
+        '''This method is called when the main application wants to know if the plugin is ready to send data.
+        Plugins providing a transport must implement this method.
+        The return value is expected to be a boolean, True if the plugin is ready to send data, False if it is not.'''
+        pass
     
     def on_shutdown(self):  
         '''This method is called when the program is being shut down.

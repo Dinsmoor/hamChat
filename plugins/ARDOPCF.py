@@ -122,7 +122,10 @@ class ARDOPCF(hamChatPlugin):
         self.command_listen.start()
 
     def is_ready(self):
-        return(self.ready.get() == "Ready")
+        try:
+            return(self.ready.get() == "Ready")
+        except RuntimeError:
+            return(False)
 
     def is_socket_connected(self, sock):
         try:
@@ -140,7 +143,7 @@ class ARDOPCF(hamChatPlugin):
             self.sock_cmd.setblocking(False)
             self.sock_data.connect((self.state.get('host'), int(self.state.get('port'))+1))
             self.sock_data.setblocking(False)
-            time.sleep(0.25)
+            time.sleep(0.1)
             self.ready.set("Ready")
             self.init_tnc()
             self.ardop_status_label.config(fg='green')
@@ -149,7 +152,7 @@ class ARDOPCF(hamChatPlugin):
                 self.sock_cmd.close()
             if self.is_socket_connected(self.sock_data):
                 self.sock_data.close()
-            time.sleep(0.25)
+            time.sleep(0.1)
             self.sock_cmd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock_data = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             
@@ -497,6 +500,7 @@ class ARDOPCF(hamChatPlugin):
                     print("ARDOP Not ready, reconnecting.")
                 # try to reconnect to the TNC
                 self.connect_to_ardopcf()
+                continue
             response = self.cmd_response(wait=True)
             self.command_response_history.append(response)
             #if debug:
@@ -538,6 +542,7 @@ class ARDOPCF(hamChatPlugin):
                 # this is a catch for the case where the command_response_history is None
                 # usually at program termination or on timeout
                 pass
+        print('ARDOPCF Command Response Thread Exiting')
 
     def on_shutdown(self):
         self.stop_event.set()
