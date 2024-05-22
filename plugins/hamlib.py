@@ -3,6 +3,12 @@ from hamChatPlugin import hamChatPlugin
 import tkinter as tk
 import socket
 
+"""
+Standard hamChat header format:
+0       1    2      3        4          5         6 (-1)
+N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
+"""
+
 class Hamlib(hamChatPlugin):
     def __init__(self, host_interface: object):
         super().__init__(host_interface)

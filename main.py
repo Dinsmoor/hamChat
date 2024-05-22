@@ -12,6 +12,10 @@ radio operators to do almost whatever they want within the
 context of text or binary data transfer, via a plugin system.
 
 This application is a work in progress and is not yet complete.
+
+Standard hamChat header format:
+0       1    2      3        4          5         6 (-1)
+N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 """
 
 
@@ -52,15 +56,22 @@ class HamChat(tk.Tk):
         self.ui_ready = threading.Event()
         self.transport_status_ready = threading.Event()
         self.transport_status_frame = tk.Frame(self)
+        self.debug = tk.BooleanVar()
+        self.debug.set(False)
         
 
         # there is a race condition between the plugins needing to access to the ui and the ui being created
         self.plugMgr = PluginManager(host_interface=self)
         self.plugMgr.load_plugins('plugins')
         self.transport = self.get_selected_transport()
+        # avoid any issues with transports having a buffer that might interfere with messages
+        self.plugMgr.on_clear_buffer()
         
         self.create_widgets()
         self.ui_ready.set()
+
+        # everything below here shits themselves if a transport
+        # has a time.sleep in a loop while waiting for anything.
 
         # these two need to be on their own threads
         self.data_listener = threading.Thread(target=self.listen_for_data)
@@ -91,6 +102,8 @@ class HamChat(tk.Tk):
             pass
 
     def save_message_history(self):
+        if not self.settings['use_message_history']:
+            return
         with open('message_history.txt', 'w') as f:
             for message in self.message_history:
                 f.write(message+'\n')
@@ -117,6 +130,34 @@ class HamChat(tk.Tk):
         self.message_history = []
         self.save_message_history()
 
+    def create_plugin_info_window(self, plugin):
+        plugin_info_window = tk.Toplevel(self)
+        plugin_info_window.title(f"{plugin.definition['name']} Info")
+        plugin_info_window.geometry("500x300")
+        plugin_textbox = tk.Text(plugin_info_window, width=60, height=20)
+        plugin_textbox.config(wrap=tk.WORD, state=tk.NORMAL)
+        plugin_textbox.pack()
+
+        # iterate over every field in plugin.definition and display it
+        # in a label
+        for key, value in plugin.definition.items():
+            # exclude empty values
+            if not value:
+                continue
+            if key == 'depends_on':
+                for value in value:
+                    plugin_textbox.insert(tk.END, f"Depends on: {value['plugin']} version {value['version']}\n")
+                continue
+            key = key.capitalize()
+            value = str(value)
+            # remove multiple spaces and newlines
+            value = ' '.join(value.split())
+            plugin_textbox.insert(tk.END, f"{key}: {value}\n")
+        plugin_textbox.config(state=tk.DISABLED)
+
+        close_button = tk.Button(plugin_info_window, text="Close", command=plugin_info_window.destroy)
+        close_button.pack()
+
     def create_menubar(self):
         self.menubar = tk.Menu(self)
         self.filemenu = tk.Menu(self.menubar, tearoff=0)
@@ -125,15 +166,20 @@ class HamChat(tk.Tk):
         self.filemenu.add_command(label="Exit", command=self.shutdown)
         self.menubar.add_cascade(label="File", menu=self.filemenu)
 
-        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
-        self.helpmenu.add_command(label="About", command=self.display_info_box)
-        self.menubar.add_cascade(label="Help", menu=self.helpmenu)
-
         self.transportmenu = tk.Menu(self.menubar, tearoff=0)
         for plugin in self.plugMgr.plugins:
             if plugin.definition.get('transport'):
                 self.transportmenu.add_command(label=plugin.definition['name'], command=lambda plugin=plugin: self.update_selected_transport(plugin.definition['transport']))       
         self.menubar.add_cascade(label="Transports", menu=self.transportmenu)
+
+        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
+        self.helpmenu.add_command(label="About hamChat", command=self.display_info_box)
+        self.menubar.add_cascade(label="Help", menu=self.helpmenu)
+
+        self.pluginsmenu = tk.Menu(self.menubar, tearoff=0)
+        for plugin in self.plugMgr.plugins:
+            self.pluginsmenu.add_command(label=plugin.definition['name'], command=lambda plugin=plugin: self.create_plugin_info_window(plugin))
+        self.helpmenu.add_cascade(label="Plugins", menu=self.pluginsmenu)
 
         self.config(menu=self.menubar)
 
@@ -174,6 +220,7 @@ class HamChat(tk.Tk):
         tk.Label(self.chat_entry_area_frame, text="Recipient Callsigns:").pack()
         self.recipients_entry = EntryWithPlaceholder(self.chat_entry_area_frame, width=60, placeholder="NOCALL,NO2CALL")
         self.recipients_entry.pack(fill=tk.X)
+        self.recipients_entry.bind("<Return>", lambda event: self.send_chat_message())
 
         self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message, state=tk.DISABLED)
         self.send_button.pack()
@@ -195,6 +242,10 @@ class HamChat(tk.Tk):
         self.plugins_frame_scrollbar.pack(side="right", fill="y")
         self.plugins_frame.pack(side="left", fill="both", expand=True, anchor="center")
         self.plugins_canvas.pack(side="left", fill="both", expand=True)
+        # add a debug check box to the plugins frame
+        self.debug_checkbutton = tk.Checkbutton(self.plugins_frame, text="Debug to Console", variable=self.debug)
+
+        self.debug_checkbutton.pack()
 
         self.plugMgr.create_plugin_frames(self.plugins_frame)
         # add padding and basic style to all of the plugin frames
@@ -238,6 +289,7 @@ class HamChat(tk.Tk):
         info_box = tk.Toplevel(self)
         info_box.title("About ARDOP Chat")
         info_box.geometry("500x300")
+        version_label = tk.Label(info_box, text=f"Version: {self.version}").pack()
         info_label = tk.Label(info_box, text=info)
         info_label.pack()
         close_button = tk.Button(info_box, text="Close", command=info_box.destroy)
@@ -260,19 +312,68 @@ class HamChat(tk.Tk):
             recipients = ""
         if not recipients:
             recipients = "ALL"
+        # might move this into Core hamChatPlugin
         # If this was in a plugin, this format would be the same except for any
         # additional fields that the plugin would need to add to the header.
         # the next three lines would be basically the same.
         data = f"{sender}:chat:{self.version}:{recipients}:BEGIN:{message}:END:"
+        print(f"Sending data: {data}")
         self.transport.append_bytes_to_buffer(data.encode())
         # do plugins want the data that we are sending? Probably not, for now.
         self.plugMgr.on_transmit_buffer()
 
         self.chat_entry.delete(0, tk.END)
         # for our message box
-        self.print_to_chatwindow(f"{sender}->{recipients}: {message}", save=True)
+        self.print_to_chatwindow(f"{sender}->{recipients}({len(message)}): {message}", save=True)
         self.send_button['state'] = 'disabled'
         self.save_message_history()
+
+    def is_callsign(self, callsign: str) -> bool:
+        # callsigns are 4-9 characters, plus an optional SSID which may be a - followed by a two digit number
+        # minimum length is 4, maximum is 9
+        callsign_in_header = callsign.split(':')[0]
+        callsign_length = len(callsign_in_header)
+        if callsign_length < 4 or callsign_length > 9:
+            return False
+        else:
+            return True
+    
+
+    def has_hamChat_header(self, data: bytes) -> bool:
+        # a hamChat header is a string that looks like this:
+        # {sender}:{handler}:{version}:{recepients}:{optional multiple handler fields}:BEGIN:{data}:END:
+        # example: N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
+        # or for FileXfr: N0CALL:FileXfr:0.1:RECIPIENTS:FILENAME:FILESIZE:BEGIN:DATA:END:
+        # the first four fields are always the same.
+
+        # split the header by the : character, and decode it to a string
+        data_elements = data.decode().split(':')
+        # is there a callsign in the first field?
+        if not self.is_callsign(data_elements[0]):
+            print(f"Invalid callsign: {data_elements[0]}")
+            return False
+        # does a second field exist with a string that is not empty?
+        if not data_elements[1]:
+            print(f"Invalid handler: {data_elements[1]}")
+            return False
+        # is the third field a single decimal point float version number?
+        if not data_elements[2].split('.')[0].isdigit() or not data_elements[2].split('.')[1].isdigit():
+            print(f"Invalid version: {data_elements[2]}")
+            return False
+        # is the fourth field a callsign or ALL?
+        if not self.is_callsign(data_elements[3]) and data_elements[3] != "ALL":
+            print(f"Invalid recipients: {data_elements[3]}")
+            return False
+        # Is there a BEGIN field?
+        if not "BEGIN" in data_elements:
+            print(f"No BEGIN field: {data_elements}")
+            return False
+        # Is there an END field?
+        if not "END" in data_elements:
+            print(f"No END field: {data_elements}")
+            return False
+        return True
+        
 
     def listen_for_data(self):
         while not self.die.is_set():
@@ -286,31 +387,31 @@ class HamChat(tk.Tk):
             # sometimes there is a timeout and we get a NoneType.
             if not data:
                 continue
-
-            if b":BEGIN:" in data:
-                print(f"Received data: {data}")
-                header = data.split(b':BEGIN:')[0]
-                # get everyting between :BEGIN: and :END:
-                payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
-
-                # we handle chat in the main application, not in a plugin because the chat is integral to the program
-                if b":chat:" in header:
-                    sender = header.split(b":")[0].decode()
-                    recipents = header.split(b":")[3].decode()
-                    message = f"{sender}->{recipents}: {payload.decode()}"
-                    self.print_to_chatwindow(message)
-          
-                self.plugMgr.on_payload_recieved(header, payload)
-                self.save_message_history()
-            else:
-                # this is nonstandard data, we will just pass it to the plugins for them to parse
+            if not self.has_hamChat_header(data):
+                print(f"Nonstandard data: {data}")
+                # this is nonstandard data, we will send it to the plugins to see if they can handle it
+                # hopefully they can without crashing.
                 self.plugMgr.on_payload_recieved(header=None, payload=data)
+                continue
+
+            # we have a hamChat header, let's parse it
+            print(f"Received data: {data}")
+            header = data.split(b':BEGIN:')[0]
+            # get everyting between :BEGIN: and :END:
+            payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
+
+            # might move this block into Core hamChatPlugin
+            # we handle chat in the main application, not in a plugin because the chat is integral to the program
+            if b":chat:" in header:
+                sender = header.split(b":")[0].decode()
+                recipents = header.split(b":")[3].decode()
+                message = f"{sender}->{recipents}: {payload.decode()}"
+                self.print_to_chatwindow(message)
+        
+            self.plugMgr.on_payload_recieved(header=header, payload=payload)
+            self.save_message_history()
 
     def update_ui_transport_state(self):
-        # destroy widgets only if transport has changed
-
-        #for widget in self.transport_status_frame_holder.winfo_children():
-        #    widget.destroy()
         # tell the currently selected transport to update the status frame
         self.transport.on_ui_transport_status_frame(self.transport_status_frame_holder)
 
@@ -379,8 +480,8 @@ class HamChat(tk.Tk):
         print("Shutting Down...")
         self.plugMgr.on_clear_buffer()
         self.plugMgr.on_unkey_transmitter()
-        self.die.set()
         self.plugMgr.on_shutdown()
+        self.die.set()
         sys.exit()
 
 class EntryWithPlaceholder(tk.Entry):

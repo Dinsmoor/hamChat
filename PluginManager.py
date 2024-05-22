@@ -11,8 +11,8 @@ class PluginManager:
 
         # contains like: [Core, FileTransfer, Hamlib, ARDOPCF] objects
         # currently there is no load order except whatever os.listdir gives us
-        self.plugins: list[hamChatPlugin] = []
-        self.transports = []
+        self.plugins = [] # type: list[hamChatPlugin]
+        self.transports = [] # type: list[str]
         self.host_interface = host_interface
 
         if not os.path.exists(plugin_folder):
@@ -83,12 +83,25 @@ class PluginManager:
             print(f"{plugin.definition.get('name')}:{plugin.definition.get('version')} by {plugin.definition.get('author')}")
             print(plugin.info)
 
+    def __plugin_exception(self, method_called, plugin, exception, extra_info=None):
+        message = f"Plugin {plugin.definition.get('name')} had an exception: {exception}"
+        if extra_info:
+            message += f"\n{extra_info}"
+        self.host_interface.display_warning_box(message)
+        print(message)
+        # if we are in debug mode, we will print the traceback
+        if self.host_interface.settings.get('debug'):
+            print(f"Traceback: {sys.exc_info()[2]}")
+            raise
+
 
     def on_payload_recieved(self, header, payload):
         '''Only plugins that declare a handler for the data will receive it.'''
         for plugin in self.plugins:
             send_to_plugin = False
-            for handler in plugin.definition['handlers']:
+            if not plugin.definition.get('handlers'):
+                continue
+            for handler in plugin.definition.get('handlers'):
                 # some plugins want to listen to all incoming data
                 if handler == 'ALL':
                     send_to_plugin = True
@@ -107,56 +120,95 @@ class PluginManager:
                     # whatever in this interface it needs to do without further handling here.
                     send_to_plugin = True
             if send_to_plugin:
-                plugin.on_payload_recieved({'header': header, 'payload': payload})
+                try:
+                    plugin.on_payload_recieved({'header': header, 'payload': payload})
+                except Exception as e:
+                    print(f"Plugin {plugin.definition.get('name')} failed to handle payload: '{header + payload}' with error {e}")
+                    self.host_interface.display_warning_box(f"Plugin {plugin.definition.get('name')} failed to handle a payload. Check the console for more information.")
     
     def on_command_received(self, command: str):
         for plugin in self.plugins:
-            plugin.on_command_received(command)
-
-    def on_data_loaded_into_buffer(self, data: bytes):
-        for plugin in self.plugins:
-            plugin.on_data_loaded_into_buffer(data)
+            try:
+                plugin.on_command_received(command)
+            except Exception as e:
+                self.__plugin_exception('on_command_received', plugin, e, f"Command: {command}")
 
     def append_bytes_to_buffer(self, data: bytes):
         # only send to the current selected transport by the host application
-        self.host_interface.transport.append_bytes_to_buffer(data)
+        for plugin in self.plugins:
+            if plugin.definition.get('transport') == self.host_interface.settings.get('transport'):
+                try:
+                    plugin.append_bytes_to_buffer(data)
+                except Exception as e:
+                    self.__plugin_exception('append_bytes_to_buffer', plugin, e, f"Data: {data}")
 
     def on_transmit_buffer(self):
         for plugin in self.plugins:
-            plugin.on_transmit_buffer()
+            try:
+                plugin.on_transmit_buffer()
+            except Exception as e:
+                self.__plugin_exception('on_transmit_buffer', plugin, e)
     
     def on_clear_buffer(self):
         for plugin in self.plugins:
-            plugin.on_clear_buffer()
-    
-    def on_estimate_time_to_send(self, datalen: int = 0):
-        for plugin in self.plugins:
-            plugin.on_estimate_time_to_send(datalen)
+            try:
+                plugin.on_clear_buffer()
+            except Exception as e:
+                self.__plugin_exception('on_clear_buffer', plugin, e)
     
     def on_ui_transport_status_frame(self, tkParent):
         for plugin in self.plugins:
-            plugin.on_ui_transport_status_frame(tkParent)
+            try:
+                plugin.on_ui_transport_status_frame(tkParent)
+            except Exception as e:
+                self.__plugin_exception('on_ui_transport_status_frame', plugin, e)
 
     def on_key_transmitter(self):
         for plugin in self.plugins:
-            plugin.on_key_transmitter()
+            try:
+                plugin.on_key_transmitter()
+            except Exception as e:
+                self.__plugin_exception('on_key_transmitter', plugin, e)
     
     def on_unkey_transmitter(self):
         for plugin in self.plugins:
-            plugin.on_unkey_transmitter()
+            try:
+                plugin.on_unkey_transmitter()
+            except Exception as e:
+                self.__plugin_exception('on_unkey_transmitter', plugin, e)
 
     def create_plugin_frames(self, tkParent):
         for plugin in self.plugins:
-            plugin.create_plugin_frame(tkParent)
+            try:
+                plugin.create_plugin_frame(tkParent)
+            except Exception as e:
+                self.__plugin_exception('create_plugin_frame', plugin, e)
     
     def on_get_data(self) -> bytes:
         for plugin in self.plugins:
-            plugin.on_get_data()
+            try:
+                plugin.on_get_data()
+            except Exception as e:
+                self.__plugin_exception('on_get_data', plugin, e)
     
     def on_settings_update(self):
         for plugin in self.plugins:
-            plugin.on_settings_update()
+            try:
+                plugin.on_settings_update()
+            except Exception as e:
+                self.__plugin_exception('on_settings_update', plugin, e)
     
     def on_shutdown(self):
         for plugin in self.plugins:
-            plugin.on_shutdown()
+            try:
+                plugin.on_shutdown()
+            except Exception as e:
+                self.__plugin_exception('on_shutdown', plugin, e)
+
+    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None):
+        for plugin in self.plugins:
+            if plugin.definition.get('name') == target_plugin:
+                try:
+                    plugin.IPC(target_plugin=target_plugin, from_plugin=from_plugin, command=command, data=data)
+                except Exception as e:
+                    self.__plugin_exception('IPC', plugin, e, f"Command: {command} Data: {data}")

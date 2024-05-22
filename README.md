@@ -46,12 +46,8 @@ sense and be easy for the plugin authors to understand exactly what they do.
 ## Ideas for Plugins
 - Over-the-air Plugin sharing
   - Plugin mismatch can be resolved via file transfer
-- Data ACK
-  - Non-connected mode delivery confirmation
 - Modulation mode testing
   - Measure effective throughtput for different data modes.
-- TNC status window
-  - Separate section of UI to have the current
 - Automatic Link Establishment
   - Use rigctld to hop around frequencies waiting to be 'called'
 - ARQ mode
@@ -76,3 +72,22 @@ sense and be easy for the plugin authors to understand exactly what they do.
   - If someone is on TCP, you can relay their messaged through ardop or something.
 - Message translation
   - If someone is chatting in another language, automatically translate to and from their language.
+
+## Writing Plugins
+
+0. Be WARNED that the plugin interface may change in the future. If this does, the 'Core' plugin version will increment.
+1. Copy hamChatPlugin.py to your new plugin file name. (myPlugin.py)
+2. Rename the hamChatPlugin to whatever you like, and inherit from hamChatPlugin.
+3. Write your self.description. Be sure to declare any new handlers if you expect to send or receive messages over a transport.
+4. Read the entirity of the comments and examples in __init__, they tell you how best to interface with the main program.
+5. Read all the default methods and their descriptions to figure out when you want your code to run. Take note:
+   1. Except for on_transport_state_update() and on_get_data() - all other methods run on the same thread as the UI.
+   2. Don't write anything in these methods that is blocking/dependant on another plugin to perform a task.
+   3. It is better for you to start your own worker thread to manage all of the internal state requirements.
+   4. Code written in these methods should have robust error handling. If they fail, they will crash the main thread. I do not want to get bug reports on this repository for custom plugin issues.
+6. Keep It Simple, Stupid!
+   1. Plugins can communicate with one another. Each plugin should add ONE function/feature. There is no need to pack 10 features into one plugin. This makes them harder to interface with.
+7. If another plugin doesn't provide a hook that you need, feel free to fork it and submit a pull request.
+   1. When testing plugin revisions on-air, be sure to change the version number if the changes you make are incompatible with the source version.
+8. TEST THESE ON AIR WITH MULTPLE STATIONS BEFORE COMMITTING! Avoid WOMM (Works On My Machine) syndrome as much as possible.
+9. Provide feedback on how development went. For me, because I wrote the whole ting, it's easy to remember how to work around issues. If there is a problem where doing something is harder than it should be, and you've reviewed all the example plugins, please send an email or open an issue.

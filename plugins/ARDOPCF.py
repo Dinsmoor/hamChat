@@ -7,6 +7,11 @@ import tkinter as tk
 import json
 from hamChatPlugin import hamChatPlugin
 
+"""
+Standard hamChat header format:
+0       1    2      3        4          5         6 (-1)
+N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
+"""
 
 class ARDOPCF(hamChatPlugin):
     def __init__(self, host_interface):
@@ -22,6 +27,7 @@ class ARDOPCF(hamChatPlugin):
         self.stop_event = threading.Event()
         self.data_transfer_complete = threading.Event()
         self.command_response_history = []
+        self.pending_buffers = []
         self.host_interface = host_interface
         self.ready = tk.StringVar()
         self.ardop_status_label = tk.Label()
@@ -128,11 +134,13 @@ class ARDOPCF(hamChatPlugin):
 
     def connect_to_ardopcf(self):
         # this will not stop calling itself until we are in a connected state
+
         try:
             self.sock_cmd.connect((self.state.get('host'), int(self.state.get('port'))))
             self.sock_data.connect((self.state.get('host'), int(self.state.get('port'))+1))
-            self.init_tnc()
+            time.sleep(0.25)
             self.ready.set("Ready")
+            self.init_tnc()
             self.ardop_status_label.config(fg='green')
         except OSError:
             if self.is_socket_connected(self.sock_cmd):
@@ -142,14 +150,16 @@ class ARDOPCF(hamChatPlugin):
             time.sleep(0.25)
             self.sock_cmd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock_data = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.ready.set("Not Ready")
-            self.ardop_status_label.config(fg='red')
-
-            # call this function again to try to reconnect
-            self.connect_to_ardopcf()
+            try:
+                self.ready.set("Not Ready")
+                self.ardop_status_label.config(fg='red')
+            except RuntimeError:
+                # this is a catch for the case where the plugin is being shut down without being connected
+                pass
             
 
     def init_tnc(self):
+        print("ARDOP Initializing TNC")
         self.cmd_response(command='INITIALIZE')
         self.cmd_response(command=f'MYCALL {self.state.get("mycall")}')
         self.cmd_response(command=f'GRIDSQUARE {self.state.get("gridsquare")}')
@@ -161,6 +171,7 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command='ENABLEPINGACK 1')
         self.cmd_response(command='USE600MODES 1') # symbol rate violation if on HF >:^)
         time.sleep(0.25)
+        print("ARDOP TNC Initialized")
 
     def show_help_window(self):
         help_window = tk.Toplevel()
@@ -179,7 +190,7 @@ class ARDOPCF(hamChatPlugin):
             self.sock_cmd.sendall(string.encode())
         except BrokenPipeError or OSError:
             self.ready.set("Not Ready")
-            print("Connection to ARDOPC client lost.")
+            print("Connection to ARDOPCF lost.")
             return
 
     def _save_settings_to_file(self):
@@ -303,46 +314,41 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command='STATE', wait=False)
         self.cmd_response(command='BUFFER', wait=False)
 
-    def send_text_to_buffer(self, message : str):
-        if not self.is_ready():
-            return
-        # this application only uses FEC mode (for now)
-        # data format is <2 bytes for length><FEQ or ARQ><data>
-        data = 'FEC' + message
-        if len(data) > 1000:
-            print("Message too long, TNC cannot send.")
-            return(False)
-        try:
-            data_length = len(data).to_bytes(2, 'big')
-        except OverflowError:
-            print("Message too long, cannot send.")
-            return(False)
-        data = data_length + data.encode()
-        # check the actual length of the message
-        self.sock_data.sendall(data)
-        print(f"->buffer: '{message}'")
-        return(True)
-
     def append_bytes_to_buffer(self, data : bytes):
+        # ARDOPCF is a single-threaded application, and it spends most of
+        # its time processing incoming audio to decode for frames.
+        # Because of this, it doesn't immediately intake new data or commands from their sockets,
+        # or immediately issue a response to commands. Because of this, we need to wait
+        # in between things we want to send. Often, plugins will send data to the buffer,
+        # another plugin may send data to the buffer, and the TNC will not have processed
+        # the first data before the second data is loaded. A message may sit in the
+        # outgoing buffer until a new message is loaded and sent.
+        
+        # you CANNOT sleep in any loops here.
+
         if not self.is_ready():
             return
-        # this application only uses FEC mode
-        # data format is <2 bytes for length><FEQ or ARQ><data>
-        # data should already come here with the protocol header
-
+        
         # if the data is too long, we can't send it without splitting it up
         # 1000 seems comfortable.
-
         for i in range(0, len(data), 1000):
             data_chunk = data[i:i+1000]
             # every chunk of data needs to be prefixed with the FEC prefix else the TNC will ignore it
+            # this application only uses FEC mode
+            # data format is <2 bytes for length><FEQ or ARQ><data>
+            # data should already come here with the hamChat standard header
             data_chunk = b'FEC' + data_chunk
             data_length = len(data_chunk).to_bytes(2, 'big')
             data_chunk = data_length + data_chunk
             self.sock_data.sendall(data_chunk)
 
+        # hopefully the TNC will have processed the data by now :^)
+        time.sleep(0.25)
+        print(f"ARDOP Buffer Ready: {self.state.get('buffer')} bytes.")
+
     def on_transmit_buffer(self):
-        # twice! because the TNC is a little finicky on first transmit
+        # twice! because the TNC can be a little finicky on first transmit
+        # also, sometimes the command recieve buffer will 'double up' on itself.
         self.cmd_response(command='FECSEND TRUE', wait=False)
         self.cmd_response(command='FECSEND TRUE', wait=False)
 
@@ -393,15 +399,17 @@ class ARDOPCF(hamChatPlugin):
             # no data for a while? give up
             if time.time() - start_time > timeout:
                 break
-            if not self.is_ready():
-                self.connect_to_ardopcf()
+            # we do this in check_for_command_responses
+            #if not self.is_ready():
+            #    self.connect_to_ardopcf()
                 
             # check every 300ms if we have data (time delay between frames or repeats)
             if self.sock_data in select.select([self.sock_data], [], [], listen_time)[0]:
                 raw_response: bytes = self.sock_data.recv(1024)
                 # for testing, save the raw data to a file, append mode
-                #with open('raw_data', 'ab') as f:
-                #    f.write(raw_response)
+                if self.host_interface.debug.get():
+                    with open('raw_data', 'ab') as f:
+                        f.write(raw_response)
 
                 # next two bytes are the length of the frame, which we can trim, because
                 # we can just read until we get the :END: footer
@@ -414,7 +422,9 @@ class ARDOPCF(hamChatPlugin):
                 elif raw_response.startswith(b'FEC'):
                     raw_response = raw_response[3:]
                 elif raw_response.startswith(b'ERR'):
-                    print("TNC sent error, ignoring.")
+                    print("ARDOP TNC sent error, saving to file for analysis.")
+                    with open(f'ARDOP_error_data_{time.strftime("%Y%m%d-%H%M%S")}', 'wb') as f:
+                        f.write(raw_response)
                     continue
 
                 this_frame_data = raw_response
@@ -440,28 +450,40 @@ class ARDOPCF(hamChatPlugin):
         # if we run without a command, return immediately
         # if we run with a command, block until we get a response
         while True:
-            timeout = 0
             if command:
+                if self.host_interface.debug.get():
+                    print(f"ARDOP CMD: {command}")
                 self.__send_cmd(command)
-            if wait:
-                timeout = None
-            else:
+                
+            if not wait:
                 return(None)
             try:
-                if self.sock_cmd in select.select([self.sock_cmd], [], [], timeout)[0]:
-                    response = self.sock_cmd.recv(1024).decode() # all responses from the TNC are ASCII
-                    return(response)
+                line = b''
+                while True:
+                    part = self.sock_cmd.recv(1)
+                    if part != b"\r":
+                        line+=part
+                    elif part == b"\r":
+                        break
+                return line.decode()
             except OSError as e:
+                # might be a broken pipe, or a timeout
+                # either way, we need to reconnect
                 return(None)
     
     def listen_for_command_responses(self):
         # this is our main event loop for handling command responses from the TNC
         while not self.stop_event.is_set():
+            debug = self.host_interface.debug.get()
             if not self.is_ready():
+                if debug:
+                    print("ARDOP Not ready, reconnecting.")
                 # try to reconnect to the TNC
                 self.connect_to_ardopcf()
             response = self.cmd_response(wait=True)
             self.command_response_history.append(response)
+            if debug:
+                print(f"ARDOP Response: {response}")
 
             try:
                 for entry in self.command_response_history:
@@ -473,7 +495,7 @@ class ARDOPCF(hamChatPlugin):
                         self.state['ptt'] = False
                         self.host_interface.plugMgr.on_unkey_transmitter()
                     elif entry.startswith('BUFFER'):
-                        self.state['buffer'] = entry.split()[1]
+                        self.state['buffer'] = int(entry.split()[1])
                     elif entry.startswith('STATE'):
                         self.state['state'] = entry.split()[1]
                     elif entry.startswith('FECSEND'):
@@ -487,14 +509,14 @@ class ARDOPCF(hamChatPlugin):
                     elif entry.startswith('FECREPEATS'):
                         self.state['fec_repeats'] = entry.split()[2]
                     elif entry.startswith('PROTOCOLMODE'):
-                        self.state['protocol_mode'] = entry.split()[2]
+                        self.state['protocol_mode'] = entry.split()[1]
                     else:
                         #print(f"Unhandled command response: {entry}")
                         pass
                     self.command_response_history.remove(entry)
                     # plugins might really interfere with this thread, it may be better
                     # to spawn a thread when this is called. Will test and change as needed.
-                    self.host_interface.plugMgr.on_command_received(entry)
+                    #self.host_interface.plugMgr.on_command_received(entry)
             except TypeError:
                 # this is a catch for the case where the command_response_history is None
                 # usually at program termination or on timeout
@@ -504,8 +526,9 @@ class ARDOPCF(hamChatPlugin):
         self.stop_event.set()
         # this is a hack to get the command_response thread to exit
         # (it's blocking on a recv call until it gets a response from the TNC)
-        self.cmd_response(command='STATE', wait=False)
-        self.command_listen.join()
-        self.sock_cmd.close()
-        self.sock_data.close()
-        sys.exit()
+        if self.is_ready():
+            self.cmd_response(command='ABORT', wait=False)
+            self.cmd_response(command='STATE', wait=False)
+            self.command_listen.join()
+            self.sock_cmd.close()
+            self.sock_data.close()
