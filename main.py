@@ -46,6 +46,7 @@ class HamChat(tk.Tk):
         self.geometry("800x500")
         self.settings = {
             'callsign': 'N0CALL',
+            'recipients': 'ALL',
             'gridsquare': 'AA00AA',
             'selected_transport': 'ARDOP',
             'use_message_history': 1
@@ -223,6 +224,8 @@ class HamChat(tk.Tk):
         self.recipients_entry = EntryWithPlaceholder(self.chat_entry_area_frame, width=60, placeholder="NOCALL,NO2CALL")
         self.recipients_entry.pack(fill=tk.X)
         self.recipients_entry.bind("<Return>", lambda event: self.send_chat_message())
+        if self.settings.get('recipients'):
+            self.recipients_entry.set(self.settings.get('recipients'))
 
         self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message, state=tk.DISABLED)
         self.send_button.pack()
@@ -334,6 +337,7 @@ class HamChat(tk.Tk):
         self.chat_entry.delete(0, tk.END)
         # for our message box
         self.print_to_chatwindow(f"{sender}->{recipients}({len(message)}): {message}", save=True)
+        self.message_box.see(tk.END)
         self.send_button['state'] = 'disabled'
         self.save_message_history()
 
@@ -480,6 +484,7 @@ class HamChat(tk.Tk):
         self.settings['callsign'] = self.callsign_entry.get()
         self.settings['gridsquare'] = self.gridsquare_entry.get()
         self.settings['use_message_history'] = self.save_message_history_var.get()
+        self.settings['recipients'] = self.recipients_entry.get()
         self._save_settings_to_file()
         self.print_to_chatwindow(f"Client Settings Updated" )
         self.settings_menu.destroy()
@@ -504,6 +509,10 @@ class EntryWithPlaceholder(tk.Entry):
     def _clear_placeholder(self, event):
         if self.get() == self.placeholder:
             self.delete(0, tk.END)
+    
+    def set(self, text):
+        self.delete(0, tk.END)
+        self.insert(0, text)
 
 if __name__ == '__main__':
     hamChatUI = HamChat()

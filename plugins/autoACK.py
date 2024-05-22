@@ -9,7 +9,6 @@ N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 
 class autoACK(hamChatPlugin):
     def __init__(self, host_interface):
-        """ This is the base class for all ARDOP Chat plugins."""
         self.info = """
         This plugin automatically sends an ACK chat message in response
         if we recieve any payload with a standard hamChat header.

@@ -137,6 +137,7 @@ class ARDOPCF(hamChatPlugin):
 
         try:
             self.sock_cmd.connect((self.state.get('host'), int(self.state.get('port'))))
+            self.sock_cmd.setblocking(False)
             self.sock_data.connect((self.state.get('host'), int(self.state.get('port'))+1))
             self.sock_data.setblocking(False)
             time.sleep(0.25)
@@ -396,14 +397,14 @@ class ARDOPCF(hamChatPlugin):
 
         # if ardop gets messages and nobody reads it, it will fill up ardop's data socket buffer
 
-        # turns out we are going to need to trust the length of the data we get from the socket
-
         # example Received data: b'K7OTR-1:chat:0.1:K7OTR:BEGIN:A much longer message, here it i\x00CFECs, here it is here it is, multiple farames fefjensfnrsribghilerb\x00\x0eFECrghbgr:END:'
+
+        # possibly an ARDOP bug here that thinks frames are duplicate when they're not: https://vscode.dev/github/Dinsmoor/ardopcf/blob/develop/ARDOPC/FEC.c#L363
 
         if not self.is_ready():
             return(None)
         data = b''
-        while True:
+        while not self.stop_event.is_set():
             try:
                 # The first two bytes should be the length of the individually decoded frame
                 # this may break if our buffer has an incomplete frame for us, or the
@@ -457,29 +458,35 @@ class ARDOPCF(hamChatPlugin):
     def cmd_response(self, command=None, wait=False) -> str:
         if not self.is_ready():
             return(None)
-        # if we run without a command, return immediately
-        # if we run with a command, block until we get a response
-        while True:
-            if command:
-                #if self.host_interface.debug.get():
-                #    print(f"ARDOP CMD: {command}")
-                self.__send_cmd(command)
-                
-            if not wait:
-                return(None)
+
+        if command:
+            #if self.host_interface.debug.get():
+            #    print(f"ARDOP CMD: {command}")
+            self.__send_cmd(command)
+            
+        if not wait:
+            return(None)
+
+        line = b''
+        while not self.stop_event.is_set():
             try:
-                line = b''
-                while True:
-                    part = self.sock_cmd.recv(1)
-                    if part != b"\r":
-                        line+=part
-                    elif part == b"\r":
-                        break
-                return line.decode()
+                part = self.sock_cmd.recv(1)
+                if part != b"\r":
+                    line+=part
+                elif part == b"\r":
+                    break
+            except BlockingIOError as e:
+                # this is normal, since we set the socket to non-blocking
+                # mode to be able to terminate upon stop_event
+                # we wait a short time to not hog the CPU if there's no data to read
+                time.sleep(0.01)
+                continue
             except OSError as e:
                 # might be a broken pipe, or a timeout
                 # either way, we need to reconnect
                 return(None)
+            # if we get here, we should be reading as fast as possible
+        return line.decode()
     
     def listen_for_command_responses(self):
         # this is our main event loop for handling command responses from the TNC
@@ -539,6 +546,5 @@ class ARDOPCF(hamChatPlugin):
         if self.is_ready():
             self.cmd_response(command='ABORT', wait=False)
             self.cmd_response(command='STATE', wait=False)
-            self.command_listen.join()
             self.sock_cmd.close()
             self.sock_data.close()
