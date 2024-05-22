@@ -76,7 +76,7 @@ class SimpleFileTransfer(hamChatPlugin):
         # first four fields, and BEGIN/END are required by hamchat to get you your data, the rest are up to you
         # SENDER:FileXfr:0.1:RECIPIENTS:{your fields here}BEGIN:
         callsign = self.host_interface.settings['callsign']
-        recipients = self.host_interface.recipients.get()
+        recipients = self.host_interface.get_recipients()
         version = self.definition['version']
         with open(filename, 'rb') as f:
             file = f.read()
@@ -85,5 +85,5 @@ class SimpleFileTransfer(hamChatPlugin):
             header = f"{callsign}:{self.header_id}:{version}:{recipients}:{filename_nopath}:{filesize}:BEGIN:".encode()
             footer = b":END:"
             data = header + file + footer
-            self.host_interface.plugMgr.append_bytes_to_buffer(data)
+            self.host_interface.transport.append_bytes_to_buffer(data)
         self.host_interface.print_to_chatwindow(f"{filename} added to buffer, {filesize} bytes" )

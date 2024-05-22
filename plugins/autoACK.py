@@ -1,5 +1,6 @@
 import tkinter as tk
 from hamChatPlugin import hamChatPlugin
+import time
 """
 Standard hamChat header format:
 0       1    2      3        4          5         6 (-1)
@@ -51,13 +52,16 @@ class autoACK(hamChatPlugin):
         # spometimes we will get an ack back, sometimes not!
         # right now does not respect SSID
         if (our_callsign in recepients) or self.reply_to_all.get():
-            print(f"autoACK: Responding to {recepients} with ACK")
+            if self.host_interface.debug.get():
+                print(f"autoACK: Responding to {recepients} with ACK")
 
             length_of_data = len(data['payload'])
             ack = f"{our_callsign.decode()}:chat:0.1:{data['header'].split(b':')[0].decode()}:BEGIN:autoACKed {length_of_data} bytes:END:".encode()
             # up to the transport to determine if the channel is busy or not.
-            self.host_interface.plugMgr.append_bytes_to_buffer(ack)
-            self.host_interface.plugMgr.on_transmit_buffer()
+            self.host_interface.transport.append_bytes_to_buffer(ack)
+            # wait a moment before sending the ACK in return, the data interface may not be ready yet 
+            time.sleep(0.1)
+            self.host_interface.transport.on_transmit_buffer()
 
     def create_plugin_frame(self, tkParent) -> tk.Frame:
         self.autoack_frame = tk.Frame(tkParent)

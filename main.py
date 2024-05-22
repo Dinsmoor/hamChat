@@ -5,6 +5,7 @@ import json
 from PluginManager import PluginManager
 from hamChatPlugin import hamChatPlugin
 import sys
+import socket
 
 info = """
 This program is a desktop application that allows amatuer
@@ -39,7 +40,8 @@ class HamChat(tk.Tk):
         tk.Tk.__init__(self)
         self.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.version = '0.1'
-        self.title("hamChat")
+        our_hostname = socket.gethostname()
+        self.title(f"hamChat@{our_hostname}")
         self.resizable(True, True)
         self.geometry("800x500")
         self.settings = {
@@ -274,6 +276,8 @@ class HamChat(tk.Tk):
         self.message_box.config(state=tk.NORMAL)
         if self.plugin_preload_messages:
             [message for message in self.plugin_preload_messages if message]
+            # filter out double newlines
+            [message for message in self.plugin_preload_messages if message != '\n']
             for message in self.plugin_preload_messages:
                 self.message_box.insert(tk.END, message+'\n')
             self.plugin_preload_messages = []
@@ -304,20 +308,25 @@ class HamChat(tk.Tk):
         close_button = tk.Button(warning_box, text="Close", command=warning_box.destroy)
         close_button.pack()
 
-    def send_chat_message(self):
-        message = self.chat_entry.get()
-        sender = self.settings['callsign']
+    def get_recipients(self):
         recipients = self.recipients_entry.get().strip()
         if recipients == "NOCALL,NO2CALL":
             recipients = ""
         if not recipients:
             recipients = "ALL"
+        return recipients
+
+    def send_chat_message(self):
+        message = self.chat_entry.get()
+        sender = self.settings['callsign']
+        recipients = self.get_recipients()
         # might move this into Core hamChatPlugin
         # If this was in a plugin, this format would be the same except for any
         # additional fields that the plugin would need to add to the header.
         # the next three lines would be basically the same.
         data = f"{sender}:chat:{self.version}:{recipients}:BEGIN:{message}:END:"
-        print(f"Sending data: {data}")
+        if self.debug.get():
+            print(f"Sending data: {data}")
         self.transport.append_bytes_to_buffer(data.encode())
         # do plugins want the data that we are sending? Probably not, for now.
         self.plugMgr.on_transmit_buffer()
@@ -374,12 +383,12 @@ class HamChat(tk.Tk):
             return False
         return True
         
-
     def listen_for_data(self):
+        # this is run on its own thread
         while not self.die.is_set():
             try:
-                # TODO: replace with a method in this class that will get data from
-                # the selected transport or all transports (TBD)
+                # an annoying issue is if we start hamChat, and for example, ardop was already running and decoded some
+                # data, that data is sitting in the incoming buffer. We can clear it out, or try to read it.
                 data: bytes = self.transport.on_get_data()
             except OSError:
                 # we are shutting down
@@ -395,7 +404,8 @@ class HamChat(tk.Tk):
                 continue
 
             # we have a hamChat header, let's parse it
-            print(f"Received data: {data}")
+            if self.debug.get():
+                print(f"Received data: {data}")
             header = data.split(b':BEGIN:')[0]
             # get everyting between :BEGIN: and :END:
             payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
@@ -406,7 +416,7 @@ class HamChat(tk.Tk):
                 sender = header.split(b":")[0].decode()
                 recipents = header.split(b":")[3].decode()
                 message = f"{sender}->{recipents}: {payload.decode()}"
-                self.print_to_chatwindow(message)
+                self.print_to_chatwindow(message, save=True)
         
             self.plugMgr.on_payload_recieved(header=header, payload=payload)
             self.save_message_history()

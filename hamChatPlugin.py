@@ -162,7 +162,9 @@ class hamChatPlugin:
     
     def on_get_data(self) -> bytes:
         '''This method is called when the plugin is asked to return data from the buffer.
-        Plugins providing a transport must implement this method.'''
+        Plugins providing a transport must implement this method.
+        The return value is expected to be bytes, absent any length
+        or modem-specific headers, like FECFEC for ARDOP.'''
         pass
     
     def on_shutdown(self):  
