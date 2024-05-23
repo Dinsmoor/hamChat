@@ -5,6 +5,9 @@
 This program is a desktop application that allows amatuer radio operators to do almost whatever they want
 within the context of text or binary data transfer, via a plugin system.
 
+![image](https://github.com/Dinsmoor/hamChat/assets/3772345/9a220a17-47ce-4590-9cd5-8810ec910520)
+
+
 Currently, the following features are implemented:
 - Keyboard-to-Keyboard text chat (integral to the main program)
 - ARDOP FEC mode transport
