@@ -1,1 +1,1 @@
-{"state": "FECSEND", "buffer": 0, "ptt": false, "mycall": "K7OTR-1", "gridsquare": "CN88Qi", "fec_mode": "4FSK.500.100", "protocol_mode": "now", "fec_repeats": 0, "host": "localhost", "port": 8515}
+{"state": "DISC", "buffer": 0, "ptt": false, "mycall": "KJ7FYM", "gridsquare": "CN88Qi", "fec_mode": "8PSK.500.100", "protocol_mode": "now", "fec_repeats": 0, "host": "localhost", "port": 8515}

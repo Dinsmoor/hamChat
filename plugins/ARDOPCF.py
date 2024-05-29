@@ -1,8 +1,6 @@
 import socket
-import select
 import time
 import threading
-import sys
 import tkinter as tk
 import json
 from hamChatPlugin import hamChatPlugin
@@ -117,6 +115,7 @@ class ARDOPCF(hamChatPlugin):
         self.fec_mode_var.set(self.state.get('fec_mode'))
         self.fec_repeats_var = tk.IntVar()
         self.fec_repeats_var.set(self.state.get('fec_repeats'))
+        self.record_command_response = False
 
         self.command_listen = threading.Thread(target=self.listen_for_command_responses)
         self.command_listen.start()
@@ -186,6 +185,28 @@ class ARDOPCF(hamChatPlugin):
         These will show up at 0.0m in the time to send estimate.
         """
         tk.Label(help_window, text=help_text).pack()
+
+    def show_command_window(self):
+        self.command_window = tk.Toplevel()
+        self.command_window.title("ARDOPCF Command Window")
+        # two text areas, the top is the history of commands and responses
+        # the bottom is the command entry, much like the chat window
+
+        self.command_history_text = tk.Text(self.command_window, height=10, width=80)
+        self.command_history_text.pack()
+        self.command_entry = tk.Entry(self.command_window, width=80)
+        self.command_entry.pack()
+        self.command_entry.bind('<Return>', self.on_command_entry)
+        # destroy the window when the main window is destroyed
+        self.command_window.protocol("WM_DELETE_WINDOW", self.command_window.destroy)
+    
+    def on_command_entry(self, event):
+        command = self.command_entry.get()
+        self.command_history_text.insert(tk.END, f"Sent: {command}\n")
+        self.record_command_response = True
+        self.cmd_response(command=command, wait=False)
+        self.command_entry.delete(0, tk.END)
+        self.command_history_text.see(tk.END)
 
     def __send_cmd(self, string: str):
         if not self.is_ready():
@@ -269,6 +290,10 @@ class ARDOPCF(hamChatPlugin):
 
         help_button = tk.Button(buttonframe, text="Help", command=self.show_help_window)
         help_button.pack(side=tk.LEFT)
+
+        # command window button
+        command_button = tk.Button(buttonframe, text="Command Window", command=self.show_command_window)
+        command_button.pack(side=tk.LEFT)
 
         self.save_button = tk.Button(buttonframe, text="Save", command=self.on_settings_update)
         self.save_button.bind('<Return>', self.on_settings_update)
@@ -459,6 +484,10 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command="ABORT", wait=False)
 
     def cmd_response(self, command=None, wait=False) -> str:
+        # this does not play nice with anything.
+        # If I were smarter, I would have done this a different way.
+        # The main limitation is PTT control from ardop being very time sensitive.
+        # If it weren't for that, everything would be so much easier.
         if not self.is_ready():
             return(None)
 
@@ -521,18 +550,18 @@ class ARDOPCF(hamChatPlugin):
                         self.state['state'] = entry.split()[1]
                     elif entry.startswith('FECSEND'):
                         pass
-                    elif entry.startswith('MYCALL'):
-                        self.state['mycall'] = entry.split()[2]
-                    elif entry.startswith('GRIDSQUARE'):
-                        self.state['gridsquare'] = entry.split()[2]
-                    elif entry.startswith('FECMODE'):
-                        self.state['fec_mode'] = entry.split()[2]
-                    elif entry.startswith('FECREPEATS'):
-                        self.state['fec_repeats'] = entry.split()[2]
                     elif entry.startswith('PROTOCOLMODE'):
                         self.state['protocol_mode'] = entry.split()[1]
                     else:
-                        #print(f"Unhandled command response: {entry}")
+                        pass
+                    try:
+                        if hasattr(self, 'command_history_text') and self.command_history_text.winfo_exists():
+                            if self.record_command_response:
+                                self.command_history_text.insert(tk.END, f"{entry}\n")
+                                self.record_command_response = False
+                    except RuntimeError:
+                        # this is a catch for the case where the command_history_text is None
+                        # usually at program termination
                         pass
                     self.command_response_history.remove(entry)
                     # plugins might really interfere with this thread, it may be better
