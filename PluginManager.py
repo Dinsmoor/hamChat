@@ -87,10 +87,10 @@ class PluginManager:
         message = f"Plugin {plugin.definition.get('name')} had an exception: {exception} in {method_called}"
         if extra_info:
             message += f"\n{extra_info}"
-        self.host_interface.display_warning_box(message)
+        #self.host_interface.display_warning_box(message)
         print(message)
         # if we are in debug mode, we will print the traceback
-        if self.host_interface.settings.get('debug'):
+        if self.host_interface.debug.get():
             print(f"Traceback: {sys.exc_info()[2]}")
             raise
 
@@ -184,6 +184,13 @@ class PluginManager:
             except Exception as e:
                 self.__plugin_exception('create_plugin_frame', plugin, e)
     
+    def update_plugin_frames(self):
+        for plugin in self.plugins:
+            try:
+                plugin.update_plugin_frame()
+            except Exception as e:
+                self.__plugin_exception('update_plugin_frame', plugin, e)
+
     def on_get_data(self) -> bytes:
         for plugin in self.plugins:
             try:
@@ -212,10 +219,12 @@ class PluginManager:
             except Exception as e:
                 self.__plugin_exception('on_shutdown', plugin, e)
 
-    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None):
+    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> dict:
+        # maybe this should return a list of responses from all plugins that have the target_plugin
+        # in case multiple plugins have the same name, or we want to broadcast to all plugins.
         for plugin in self.plugins:
             if plugin.definition.get('name') == target_plugin:
                 try:
-                    plugin.IPC(target_plugin=target_plugin, from_plugin=from_plugin, command=command, data=data)
+                    return plugin.IPC(target_plugin=target_plugin, from_plugin=from_plugin, command=command, data=data)
                 except Exception as e:
                     self.__plugin_exception('IPC', plugin, e, f"Command: {command} Data: {data}")

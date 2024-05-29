@@ -39,6 +39,9 @@ class Hamlib(hamChatPlugin):
         self.rigctld_host_setting.set(self.rigctld_host)
         self.rigctld_port_setting.set(self.rigctld_port)
         self.hamlib_status_label = tk.Label()
+        self.freq = tk.StringVar()
+        self.mode = tk.StringVar()
+        self.ptt = tk.StringVar()
         self.__open_rigctld_socket()
         
 
@@ -71,9 +74,28 @@ class Hamlib(hamChatPlugin):
         self.hamlib_status_label.pack(side=tk.RIGHT)
         if self.status.get() == "Connected":
             self.hamlib_status_label.config(fg='green')
+        self.hamlib_freq_label = tk.Label(self.hamlib_frame, textvariable=self.freq)
+        self.hamlib_freq_label.pack()
+        self.hamlib_mode_label = tk.Label(self.hamlib_frame, textvariable=self.mode)
+        self.hamlib_mode_label.pack()
+        self.ptt_label = tk.Label(self.hamlib_frame, textvariable=self.ptt)
+        self.ptt_label.pack()
         hamlib_button = tk.Button(self.hamlib_frame, text="Configure", command=self._open_hamlib_config_window)
         hamlib_button.pack(side=tk.BOTTOM)
         self.hamlib_frame.pack()
+
+    def update_plugin_frame(self):
+        if self.status.get() == "Connected":
+            self.hamlib_status_label.config(fg='green')
+            self.freq.set(f"{self.get_radio_frequency()}Hz")
+            self.mode.set(f"{self.get_radio_mode()}")
+            self.ptt.set(f"PTT: {self.get_ptt_status() == '1'}")
+        else:
+            self.hamlib_status_label.config(fg='red')
+            self.status.set("Error")
+            self.freq.set("")
+            self.mode.set("")
+            self.ptt.set("")
 
     
     def _open_hamlib_config_window(self):
@@ -111,34 +133,91 @@ class Hamlib(hamChatPlugin):
         # example response: Frequency: 146450000
 
         self.sock_rigctld.sendall(b'f\n')
-        response = self.sock_rigctld.recv(1024).decode().strip()
-        # place dots in the frequency for readability
-        response = response[:-6] + '.' + response[-6:-3] + '.' + response[-3:]
+        response = self.read_rigctld_socket()
         return response
     
     def get_radio_frequency(self):
-        return self.__test_rigctld_connection()
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(b'f\n')
+            response = self.read_rigctld_socket()
+            # check if the response is a 9 digit number
+            if not response.isdigit() or len(response) != 9:
+                return
+            # place dots in the frequency for readability
+            response = response[:-6] + '.' + response[-6:-3] + '.' + response[-3:]
+            return response
     
     def set_radio_frequency(self, frequency: int):
         if self.sock_rigctld is not None:
             self.sock_rigctld.sendall(f'F {frequency}\n'.encode())
-            return self.__test_rigctld_connection()
-        else:
-            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
 
     def get_radio_mode(self):
         if self.sock_rigctld is not None:
             self.sock_rigctld.sendall(b'm\n')
-            return self.sock_rigctld.recv(1024).decode().strip()
-        else:
-            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
+            mode = self.read_rigctld_socket()
+            # check to see if the mode is a 3-6 character text string (no numbers)
+            if not mode.isalpha():
+                return
+            passband = self.read_rigctld_socket()
+            # check to see if the passband is a number longer than 1
+            if not passband.isdigit() or len(passband) == 1:
+                return
+            
+            return f"{mode}-{passband}Hz"
     
     def set_radio_mode(self, mode: str):
         if self.sock_rigctld is not None:
             self.sock_rigctld.sendall(f'M {mode}\n'.encode())
-            return self.sock_rigctld.recv(1024).decode().strip()
+
+    def get_ptt_status(self):
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(b't\n')
+            status = self.read_rigctld_socket()
+            if not status:
+                return
+            if len(status) == 1:
+                return status
+
+
+    def read_rigctld_socket(self):
+        message = b''
+        while True:
+            try:
+                message += self.sock_rigctld.recv(1)
+                if message[-1:] == b'\n':
+                    return message.decode().strip()
+            except BlockingIOError:
+                break
+
+    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> dict:
+        if not target_plugin == self.definition['name']:
+            pass
+        if command == "get_radio_frequency":
+            return {"radio_frequency": self.get_radio_frequency()}
+        elif command == "set_radio_frequency":
+            self.set_radio_frequency(int(data))
+            return {"radio_frequency": self.get_radio_frequency()}
+        elif command == "get_radio_mode":
+            return {"radio_mode": self.get_radio_mode()}
+        elif command == "set_radio_mode":
+            self.set_radio_mode(data.decode())
+            return {"radio_mode": self.get_radio_mode()}
+        elif command == "key_transmitter":
+            self.on_key_transmitter()
+            return {"status": "Transmitter keyed."}
+        elif command == "unkey_transmitter":
+            self.on_unkey_transmitter()
+            return {"status": "Transmitter unkeyed."}
+        elif command == "shutdown":
+            self.on_shutdown()
+            return {"status": "Plugin shut down."}
+        elif command == "get_plugin_info":
+            return self.definition
+        elif command == "get_plugin_status":
+            return {"status": self.status.get()}
         else:
-            self.host_interface.print_to_chatwindow("Not connected to rigctld." )
+            return {"error": "Command not recognized."}
+
 
     def __open_rigctld_socket(self):
         try:
@@ -146,11 +225,14 @@ class Hamlib(hamChatPlugin):
                 self.sock_rigctld.close()
             self.sock_rigctld = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock_rigctld.connect((self.rigctld_host, int(self.rigctld_port)))
-            self.__test_rigctld_connection()
+            self.sock_rigctld.setblocking(False)
+            self.__test_rigctld_connection() # we expect to throw an exception if we can't connect
             self.status.set("Connected")
             # make it green
             self.hamlib_status_label.config(fg='green')
             self.configure_menu_error_message = "No error detected."
+        except BlockingIOError:
+            pass
         except Exception as e:
             self.status.set("Error")
             # make it red

@@ -72,7 +72,7 @@ class hamChatPlugin:
         
         # If we want to send data to another plugin, we can use this:
         # result = self.host_interface.plugMgr.IPC('PluginName', 'FromPluginName', 'COMMAND', b'DATA')
-        # This will return True if the command was successful, False if it was not.
+        # This may return a dictionary, or whatever the target plugin returns... if anything.
         # This is EXPERIMENTAL and it is up to the plugin author to support this interface.
 
         # If we want to get whatever transport the user currently has selected, we can use this:
@@ -159,6 +159,11 @@ class hamChatPlugin:
         This is where you would create a frame to display the status of your transport plugin,
         or update the tk variables that are used to display the status of your transport plugin.'''
         pass
+
+    def update_plugin_frame(self):
+        '''This method is called when the main application wants to update the plugin's frame.
+        This is where you would update any tk variables that are displayed in the plugin's frame.'''
+        pass
     
     def on_get_data(self) -> bytes:
         '''This method is called when the plugin is asked to return data from the buffer.
@@ -187,7 +192,7 @@ class hamChatPlugin:
         in __init__ and update them here.'''
         pass
 
-    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> bool:
+    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> dict:
         '''This method is called when a plugin wants to send an inter-plugin command.
         This is an EXPERIMENTAL way how plugins can communicate with each other,
         by sending commands to each other.
@@ -195,6 +200,6 @@ class hamChatPlugin:
         The from_plugin is the name of the plugin that is sending the command, please specify name.
         The command is the command you want to send to the target plugin.
         The data is the data you want to send to the target plugin, if any.
-        This should return True if the command was successful, False if it was not.
+        This should return a dictionary containing the response from the target plugin, which may be empty.
         It is up to the plugin author to support this interface'''
         pass

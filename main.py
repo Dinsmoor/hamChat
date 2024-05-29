@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 import threading
 import time
 import json
@@ -73,6 +74,10 @@ class HamChat(tk.Tk):
         self.create_widgets()
         self.ui_ready.set()
 
+        # list of last heard stations, a list of lists (may move to sqlite later)
+        # [callsign, time, freq, mode, signal_strength, signal_quality] (callsign + time required, others if available)
+        self.recently_heard_stations = []
+
         # everything below here shits themselves if a transport
         # has a time.sleep in a loop while waiting for anything.
 
@@ -85,6 +90,9 @@ class HamChat(tk.Tk):
         # will run in main thread, but will be updated by the transport_status_frame thread
         self.update_ui_transport_state()
 
+    def log_recently_heard(self, callsign, time, freq=None, mode=None, signal_strength=None, signal_quality=None):
+        self.recently_heard_stations.append([callsign, time, freq, mode, signal_strength, signal_quality])
+        
 
     def get_selected_transport(self) -> hamChatPlugin:
         # this is set by the menu bar
@@ -133,6 +141,30 @@ class HamChat(tk.Tk):
         self.message_history = []
         self.save_message_history()
 
+    def create_recently_heard_treeview_window(self):
+        recently_heard_window = tk.Toplevel(self)
+        recently_heard_window.title("Recently Heard Stations")
+        recently_heard_window.geometry("800x500")
+        recently_heard_treeview = ttk.Treeview(recently_heard_window)
+        recently_heard_treeview["columns"] = ("callsign", "time", "freq", "mode", "signal_strength", "signal_quality")
+        recently_heard_treeview.column("#0", width=0, stretch=tk.NO)
+        recently_heard_treeview.column("callsign", anchor=tk.W, width=100)
+        recently_heard_treeview.column("time", anchor=tk.W, width=100)
+        recently_heard_treeview.column("freq", anchor=tk.W, width=100)
+        recently_heard_treeview.column("mode", anchor=tk.W, width=100)
+        recently_heard_treeview.column("signal_strength", anchor=tk.W, width=100)
+        recently_heard_treeview.column("signal_quality", anchor=tk.W, width=100)
+        recently_heard_treeview.heading("#0", text="", anchor=tk.W)
+        recently_heard_treeview.heading("callsign", text="Callsign", anchor=tk.W)
+        recently_heard_treeview.heading("time", text="Time", anchor=tk.W)
+        recently_heard_treeview.heading("freq", text="Frequency", anchor=tk.W)
+        recently_heard_treeview.heading("mode", text="Mode", anchor=tk.W)
+        recently_heard_treeview.heading("signal_strength", text="Signal Strength", anchor=tk.W)
+        recently_heard_treeview.heading("signal_quality", text="Signal Quality", anchor=tk.W)
+        for station in self.recently_heard_stations:
+            recently_heard_treeview.insert("", tk.END, values=station)
+        recently_heard_treeview.pack(fill=tk.BOTH, expand=True)
+
     def create_plugin_info_window(self, plugin):
         plugin_info_window = tk.Toplevel(self)
         plugin_info_window.title(f"{plugin.definition['name']} Info")
@@ -164,6 +196,8 @@ class HamChat(tk.Tk):
     def create_menubar(self):
         self.menubar = tk.Menu(self)
         self.filemenu = tk.Menu(self.menubar, tearoff=0)
+        self.filemenu.add_command(label="Clear Message History", command=self.delete_message_history)
+        self.filemenu.add_command(label="Recently Heard Stations", command=self.create_recently_heard_treeview_window)
         self.filemenu.add_command(label="Settings", command=self.create_settings_menu)
         self.filemenu.add_separator()
         self.filemenu.add_command(label="Exit", command=self.shutdown)
@@ -229,8 +263,7 @@ class HamChat(tk.Tk):
 
         self.send_button = tk.Button(self.native_button_frame, text="Send", command=self.send_chat_message, state=tk.DISABLED)
         self.send_button.pack()
-        self.clear_buffer_button = tk.Button(self.native_button_frame, text="Clear", command=self.delete_message_history)
-        self.clear_buffer_button.pack()
+        
 
     def create_plugins_frame(self):
         self.plugins_canvas = tk.Canvas(self.top_section, bd=2, relief=tk.SUNKEN)
@@ -296,7 +329,8 @@ class HamChat(tk.Tk):
         info_box = tk.Toplevel(self)
         info_box.title("About ARDOP Chat")
         info_box.geometry("500x300")
-        version_label = tk.Label(info_box, text=f"Version: {self.version}").pack()
+        version_label = tk.Label(info_box, text=f"Version: {self.version}")
+        version_label.pack()
         info_label = tk.Label(info_box, text=info)
         info_label.pack()
         close_button = tk.Button(info_box, text="Close", command=info_box.destroy)
@@ -415,13 +449,24 @@ class HamChat(tk.Tk):
             if self.debug.get():
                 print(f"Received data: {data}")
             header = data.split(b':BEGIN:')[0]
+            # log the contact in recent contacts
+            sender = header.split(b":")[0].decode()
+            time = time.strftime("%H:%M:%S")
+            # try to get frequency and mode from IPC
+            # currently hardcoded to hamlib, but may change to a more generic rig control plugin (I am unaware of any other rig controls)
+            # I don't like how there is both IPC and specially named hooks. This may be confusing to plugin developers,
+            # because you can implement the same thing in two different ways. If plugins are to work with each other, they
+            # should use IPC, not hooks. Hooks are for the main application to use, and maybe it should be the only one to use them.
+            # I will think on this :^)
+            freq: dict = self.plugins.IPC(target_plugin="hamlib", from_plugin="hamChat", command="get_radio_frequency")
+            mode: dict = self.plugins.IPC(target_plugin="hamlib", from_plugin="hamChat", command="get_radio_mode")
+            self.log_recently_heard(sender, time, freq=freq.get('radio_frequency'), mode=mode.get('radio_mode'))
             # get everyting between :BEGIN: and :END:
             payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
 
             # might move this block into Core hamChatPlugin
             # we handle chat in the main application, not in a plugin because the chat is integral to the program
             if b":chat:" in header:
-                sender = header.split(b":")[0].decode()
                 recipents = header.split(b":")[3].decode()
                 message = f"{sender}->{recipents}: {payload.decode()}"
                 self.print_to_chatwindow(message, save=True)
@@ -431,9 +476,13 @@ class HamChat(tk.Tk):
         print("hamChat Data Listener Thread Exiting...")
 
     def update_ui_transport_state(self):
-        # tell the currently selected transport to update the status frame
+        # tell the currently selected transport to create or update its status frame.
+        # the reason for this jankiness, is if the user switches to another transport,
+        # we don't want the old transport's status frame in the transport status area.
+        # maybe it would be better to do this as a UI event, but that would not work
+        # if the transport is unable to connect to the radio or something.
         self.transport.on_ui_transport_status_frame(self.transport_status_frame_holder)
-
+        self.plugMgr.update_plugin_frames()
         self.after(250, self.update_ui_transport_state)
     
     def update_transport_state_frame(self):
