@@ -441,6 +441,9 @@ class ARDOPCF(hamChatPlugin):
                 # this may break if our buffer has an incomplete frame for us, or the
                 # sending station has an incomplete frame in their buffer.
                 length = self.sock_data.recv(2)
+                if not length:
+                    # if we get nothing, we can break
+                    break
                 length = int.from_bytes(length, 'big')
                 # get the rest of this data frame
                 this_frame = self.sock_data.recv(length+3) # account for the FEC/ARQ/ERR msg prefix
