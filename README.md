@@ -9,19 +9,36 @@ within the context of text or binary data transfer, via a plugin system.
 
 
 Currently, the following features are implemented:
-- Keyboard-to-Keyboard text chat (integral to the main program)
+- Keyboard-to-Keyboard text chat
 - ARDOP FEC mode transport
-- hamlib rig control (mainly used for keying)
+- hamlib rig control (PTT and frequency/mode display)
 - Simple File Transfer
 - autoACK message length acknowledgment
+- Recently heard station list (not yet persistent)
 
 # Usage
 
-Have the following software running
+Have the following software running:
 - ardopcf (if using the ardop plugin)
-- rigctld (if using the hamlib plugin)
+  - https://github.com/pflarue/ardop/releases/
+  - run like `./ardopcf 8515 plughw:1,0 plughw:1,0`
+  - plughw:1,0 is whatever audio interface your radio is hooked up to. 8515 is the TCP port that hamChat will default to, but this can be anything.
+  - If you get audio errors, like "cannot open playback audio device" - check your device identifier. You may need to reboot or reload alsa/pulseaudio, or just wait a few seconds for any other application to 'let it go'.
 
-Run hamchat with `python3 main.py`
+
+- rigctld (if using the hamlib plugin)
+  - On Ubuntu, install the package `libhamlib-utils`
+  - Otherwise, compile from https://github.com/Hamlib/Hamlib
+  - Check if you have a supported radio with `rigctl -l`
+  - If supported, run like `rigctld -m your_radio_id -r /dev/ttyUSB0`
+    - where your_radio_id is the number you got from rigctl -l, and /dev/ttyUSB0 is whatever serial port you have your radio connected to
+  - If NOT supported, try a similar model. If that doesn't work, and you are using something like a digirig for PTT:
+    - Try: `rigctld --ptt-file=/dev/ttyUSB0 --ptt-type=RTS`
+  - If you get a "Permission Denied" error - you either need to get ownership of the virtual serial port or add yourself to the dialout group. Don't run rigctld as sudo.
+    - `sudo chown $USER:$USER /dev/ttyUSB0` and/or
+    - `sudo adduser $USER dialout` (then log out and back in)
+
+Run hamchat with `python3 ./main.py`
 
 
 ## Plugins
@@ -57,20 +74,19 @@ sense and be easy for the plugin authors to understand exactly what they do.
 - ARQ mode support (for ardop, at least)
   - More robust for 1-on-1 with transport-level link speed negotiation.
   - Should be better for file transfer > 500 bytes than Simple File Transfer
-- Advanced Rig Control
+- Advanced Rig Control (virtual VFO/frequency favorites)
   - Frequency and mode changing
 - Data Mode Negotiation
   - If you have a large file, auto negotiate the fastest data rate avaliable for the channel.
+  - (may be rolled in with ARQ modes)
 - Data Relay Request
   - A -> B went OK, but C wanted it too. C can request B to give it to them.
-- GPSD Squaking
+- gpsd Squaking
   - Send an APRS-compatible message (or whatever message we might want)
-- XASTIR KISS TNC emulator
-  - Interface with existing APRS software through ARDOP
 - Notification System
   - Ding on message reciept, send you an email or text message, or connect to a custom phone app
 - BBS Server
-  - If clients connect to you, you can post and respond to messages.
+  - If clients connect to you, you can post and respond to messages in a local database.
 - Callsign resolving
   - Fetch from QRZ or something
 - Cross-transport forwarding
@@ -98,10 +114,9 @@ sense and be easy for the plugin authors to understand exactly what they do.
 9. Provide feedback on how development went. For me, because I wrote the whole ting, it's easy to remember how to work around issues. If there is a problem where doing something is harder than it should be, and you've reviewed all the example plugins, please send an email or open an issue.
 
 ## Known Bugs
-1. ARDOPCF will sometimes drop incoming messages, even if properly decoded, with a message like: `[ARDOPprotocol.ProcessRcvdFECDataFrame] Same Frame ID: 4FSK.500.100.E and matching data, not passed to Host` even if the frame sent is NOT a FEC Repeat. That's why autoACK is important until that bug is fixed.
-2. If there is unprocessed data in the incoming data buffer, especially if it's not a complete hamChat packet, it will be lost/ignored.
+0. See `ARDOPCF FEC bugs.md`
+1. If there is unprocessed data in the incoming data buffer, especially if it's not a complete hamChat packet, it will be lost/ignored.
 
 ## Troubleshooting
-1. Sometimes you need to send an empty chat packet/recieve at least one packet for ardop to 'get with the program' and start giving you good data. Once I figure out why this is happening, I'll try to fix it.
+1. When using ARDOPCF, sometimes you need to send one packet/recieve at least one packet for ardop to 'get with the program' and start giving you good data.
 2. If your data never sends, make sure you are running ardop with the proper arguments. I often accidentally leave out the second audio source identifier.
-3. Some standard plugins like Simple File Transfer may have bugs. I don't rigorously test everything every commit yet, because this program is unstable.
