@@ -392,6 +392,8 @@ class HamChat(tk.Tk):
         # example: N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
         # or for FileXfr: N0CALL:FileXfr:0.1:RECIPIENTS:FILENAME:FILESIZE:BEGIN:DATA:END:
         # the first four fields are always the same.
+        if self.debug.get():
+            print(f"Checking data for hamChat header: {data}")
 
         # split the header by the : character, and decode it to a string
         data_elements = data.decode().split(':')
@@ -447,20 +449,20 @@ class HamChat(tk.Tk):
 
             # we have a hamChat header, let's parse it
             if self.debug.get():
-                print(f"Received data: {data}")
+                print(f"Received hamChat data: {data}")
             header = data.split(b':BEGIN:')[0]
             # log the contact in recent contacts
             sender = header.split(b":")[0].decode()
-            time = time.strftime("%H:%M:%S")
+            timestamp = time.strftime("%H:%M:%S")
             # try to get frequency and mode from IPC
             # currently hardcoded to hamlib, but may change to a more generic rig control plugin (I am unaware of any other rig controls)
             # I don't like how there is both IPC and specially named hooks. This may be confusing to plugin developers,
             # because you can implement the same thing in two different ways. If plugins are to work with each other, they
             # should use IPC, not hooks. Hooks are for the main application to use, and maybe it should be the only one to use them.
             # I will think on this :^)
-            freq: dict = self.plugins.IPC(target_plugin="hamlib", from_plugin="hamChat", command="get_radio_frequency")
-            mode: dict = self.plugins.IPC(target_plugin="hamlib", from_plugin="hamChat", command="get_radio_mode")
-            self.log_recently_heard(sender, time, freq=freq.get('radio_frequency'), mode=mode.get('radio_mode'))
+            freq: dict = self.plugMgr.IPC(target_plugin="Hamlib", from_plugin="hamChat", command="get_radio_frequency")
+            mode: dict = self.plugMgr.IPC(target_plugin="Hamlib", from_plugin="hamChat", command="get_radio_mode")
+            self.log_recently_heard(sender, timestamp, freq=freq.get('radio_frequency'), mode=mode.get('radio_mode'))
             # get everyting between :BEGIN: and :END:
             payload = data.split(b':BEGIN:')[1].split(b':END:')[0]
 

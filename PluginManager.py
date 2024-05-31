@@ -28,8 +28,7 @@ class PluginManager:
             unmet = ', '.join(self.unmet_dependencies)
             print("WARNING: Plugin dependencies not satisfied.")
             print("You may encounter unexpected behavior.")
-            print(f"Unmet dependencies: {unmet}")
-            self.host_interface.display_warning_box(f"Plugin dependencies not satisfied: {unmet}")
+            #self.host_interface.display_warning_box(f"Plugin dependencies not satisfied: {unmet}")
 
         self.list_plugins()
         self.register_transports()

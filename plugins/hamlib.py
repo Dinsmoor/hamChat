@@ -195,7 +195,7 @@ class Hamlib(hamChatPlugin):
         if command == "get_radio_frequency":
             return {"radio_frequency": self.get_radio_frequency()}
         elif command == "set_radio_frequency":
-            self.set_radio_frequency(int(data))
+            self.set_radio_frequency(str(data))
             return {"radio_frequency": self.get_radio_frequency()}
         elif command == "get_radio_mode":
             return {"radio_mode": self.get_radio_mode()}

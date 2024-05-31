@@ -101,7 +101,7 @@ class ARDOPCF(hamChatPlugin):
         self.definition = {
             'author': 'Tyler Dinsmoor/K7OTR',
             'name': 'ARDOPCF',
-            'version': 0.1,
+            'version': '0.1',
             'description': self.info,
             'transport': 'ARDOP',
             'handlers': [],
@@ -345,7 +345,7 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command='STATE', wait=False)
         self.cmd_response(command='BUFFER', wait=False)
 
-    def append_bytes_to_buffer(self, data : bytes):
+    def append_bytes_to_buffer(self, data : bytes, mode: str = 'FEC'):
         # ARDOPCF is a single-threaded application, and it spends most of
         # its time processing incoming audio to decode for frames.
         # Because of this, it doesn't immediately intake new data or commands from their sockets,
@@ -360,15 +360,16 @@ class ARDOPCF(hamChatPlugin):
         if not self.is_ready():
             return
         
+        modebytes = mode.encode()
         # if the data is too long, we can't send it without splitting it up
         # 1000 seems comfortable.
         for i in range(0, len(data), 1000):
             data_chunk = data[i:i+1000]
             # every chunk of data needs to be prefixed with the FEC prefix else the TNC will ignore it
-            # this application only uses FEC mode
+            # this modem uses FEC mode by default for p2p chat
             # data format is <2 bytes for length><FEQ or ARQ><data>
             # data should already come here with the hamChat standard header
-            data_chunk = b'FEC' + data_chunk
+            data_chunk = modebytes + data_chunk
             data_length = len(data_chunk).to_bytes(2, 'big')
             data_chunk = data_length + data_chunk
             self.sock_data.sendall(data_chunk)
@@ -404,6 +405,8 @@ class ARDOPCF(hamChatPlugin):
         
         return(result)
 
+    # TODO: This, unfortunately, only handles FEC mode, and not ARQ mode.
+    # It would make sense to implement ARQ mode so it would be possible to send CONREQ2000M frames
     def on_get_data(self) -> bytes:
         # This is blocking, and should run in its own thread
         # This will return ONE set of frames from the TNC, marked by the :END: footer
@@ -572,6 +575,14 @@ class ARDOPCF(hamChatPlugin):
                 # usually at program termination or on timeout
                 pass
         print('ARDOPCF Command Response Thread Exiting')
+
+    def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> dict:
+        if target_plugin != self.definition['name']:
+            return({})
+        if command == 'send':
+            self.append_bytes_to_buffer(data)
+            self.on_transmit_buffer()
+
 
     def on_shutdown(self):
         self.stop_event.set()
