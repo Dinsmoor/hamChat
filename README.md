@@ -36,20 +36,24 @@ To use this program, you need:
  4. A way to connect to a radio (one of the following)
     1. Signalink USB -> https://tigertronics.com/slusbmain.htm
        1. Uses VOX to trigger the PTT line, but may have issues with timing/delay.
+       2. May also trigger PTT with CAT/RTS/DTR, this is preferred but dependant on radio.
     2. Digirig Mobile -> https://digirig.net/
        1. Uses CAT or Serial RTS for PTT. Requires Hamlib.
+       2. Works with BaoFeng
+    3. Built-in USB interface (such as Yaesu FT-991A)
+       1. Requires Hamlib
 
 
 To run this program:
-Have the following software running:
-- ardopcf (if using the ardop plugin)
+
+- start ardopcf
   - https://github.com/pflarue/ardop/releases/
   - run like `./ardopcf 8515 plughw:1,0 plughw:1,0`
-  - plughw:1,0 is whatever audio interface your radio is hooked up to. 8515 is the TCP port that hamChat will default to, but this can be anything.
-  - If you get audio errors, like "cannot open playback audio device" - check your device identifier. You may need to reboot or reload alsa/pulseaudio, or just wait a few seconds for any other application to 'let it go'.
+  - plughw:1,0 is whatever audio interface your radio is hooked up to. Yes, you must repeat it twice. 8515 is the TCP port that hamChat will default to.
+  - If you get audio errors, like "cannot open playback audio device" - check your device identifier. You may need to reboot or reload alsa/pulseaudio, or just wait a few seconds for any other application to 'let it go'. Or you invoked ardopcf incorrectly.
 
 
-- rigctld
+- start rigctld (this is part of hamlib)
   - On Ubuntu, install the package `libhamlib-utils`
   - Otherwise, compile from https://github.com/Hamlib/Hamlib
   - Check if you have a supported radio with `rigctl -l`
@@ -61,11 +65,14 @@ Have the following software running:
     - `sudo chown $USER:$USER /dev/ttyUSB0` and/or
     - `sudo adduser $USER dialout` (then log out and back in)
 
-Run hamchat with `python3 ./main.py`
+- hamChat
+  - Download or clone this repository
+  - Run hamchat with `python3 ./main.py`
 
 ## Known Bugs
 0. See `ARDOPCF FEC bugs.md`
 1. If an internal thread crashes, it's not always made apparent to the user, and certain features will stop working. The program may need to be restarted if this happens.
+2. If the main thread crashes, the program will not exit cleanly. Multiple CTRL+C in the terminal window may be needed.
 
 ## Troubleshooting
 1. When using ARDOPCF, sometimes you need to send one packet/recieve at least one packet for ardopcf to start giving you good data.
