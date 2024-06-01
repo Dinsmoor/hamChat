@@ -3,7 +3,16 @@
 *Consider this software unstable and subject to extreme changes*
 
 This program is a desktop application that allows amatuer radio operators to do almost whatever they want
-within the context of text or binary data transfer, via a plugin system.
+within the context of text or binary data transfer, via a plugin system. Usually, this means using an
+audio baseband over a radio link with a modem. Such as:
+
+``` 
+hamChat                        Radio
+---rig control ------>PTT/CAT |     |\___>Radio link to another station
+---sound modem ------>AUDIO   |     |/   >Also running hamChat
+```
+
+It is written in python3.6+, and uses no special libraries. It is also not very good (yet.)
 
 ![image](https://github.com/Dinsmoor/hamChat/assets/3772345/9a220a17-47ce-4590-9cd5-8810ec910520)
 
@@ -13,11 +22,25 @@ Currently, the following features are implemented:
 - ARDOP FEC mode transport
 - hamlib rig control (PTT and frequency/mode display)
 - Simple File Transfer
-- autoACK message length acknowledgment
-- Recently heard station list (not yet persistent)
+- autoACK message acknowledgment
+- Recently heard stations list
 
 # Usage
 
+If you have already run amatuer software before, like direwolf, then runing this program is relatively straight forward. 
+
+To use this program, you need:
+ 1. Graphical Environment (Linux Recommended)
+ 2. Python 3.6+ interpreter -> https://www.python.org/downloads/ (or your system repositories)
+ 3. The ARDOPCF modem -> https://github.com/pflarue/ardop/releases/
+ 4. A way to connect to a radio (one of the following)
+    1. Signalink USB -> https://tigertronics.com/slusbmain.htm
+       1. Uses VOX to trigger the PTT line, but may have issues with timing/delay.
+    2. Digirig Mobile -> https://digirig.net/
+       1. Uses CAT or Serial RTS for PTT. Requires Hamlib.
+
+
+To run this program:
 Have the following software running:
 - ardopcf (if using the ardop plugin)
   - https://github.com/pflarue/ardop/releases/
@@ -26,7 +49,7 @@ Have the following software running:
   - If you get audio errors, like "cannot open playback audio device" - check your device identifier. You may need to reboot or reload alsa/pulseaudio, or just wait a few seconds for any other application to 'let it go'.
 
 
-- rigctld (if using the hamlib plugin)
+- rigctld
   - On Ubuntu, install the package `libhamlib-utils`
   - Otherwise, compile from https://github.com/Hamlib/Hamlib
   - Check if you have a supported radio with `rigctl -l`
@@ -40,8 +63,16 @@ Have the following software running:
 
 Run hamchat with `python3 ./main.py`
 
+## Known Bugs
+0. See `ARDOPCF FEC bugs.md`
+1. If an internal thread crashes, it's not always made apparent to the user, and certain features will stop working. The program may need to be restarted if this happens.
 
-## Plugins
+## Troubleshooting
+1. When using ARDOPCF, sometimes you need to send one packet/recieve at least one packet for ardopcf to start giving you good data.
+2. If your data never sends, make sure you are running ardopcf with the proper arguments.
+
+
+# For Developers
 
 **DO NOT WRITE PLUGINS FOR THIS YET!**
 
@@ -64,37 +95,9 @@ sense and be easy for the plugin authors to understand exactly what they do.
 3. Plugin class initialization must accept one argument, which is the GUI instance object.
    - See plugin folder for examples
 
-## Ideas for Plugins
-- Over-the-air Plugin sharing
-  - Plugin mismatch can be resolved via file transfer
-- Modulation mode testing
-  - Measure effective throughtput for different data modes.
-- Automatic Link Establishment
-  - Use rigctld to hop around frequencies waiting to be 'called'
-- ARQ mode support (for ardop, at least)
-  - More robust for 1-on-1 with transport-level link speed negotiation.
-  - Should be better for file transfer > 500 bytes than Simple File Transfer
-- Advanced Rig Control (virtual VFO/frequency favorites)
-  - Frequency and mode changing
-- Data Mode Negotiation
-  - If you have a large file, auto negotiate the fastest data rate avaliable for the channel.
-  - (may be rolled in with ARQ modes)
-- Data Relay Request
-  - A -> B went OK, but C wanted it too. C can request B to give it to them.
-- gpsd Squaking
-  - Send an APRS-compatible message (or whatever message we might want)
-- Notification System
-  - Ding on message reciept, send you an email or text message, or connect to a custom phone app
-- BBS Server
-  - If clients connect to you, you can post and respond to messages in a local database.
-- Callsign resolving
-  - Fetch from QRZ or something
-- Cross-transport forwarding
-  - If someone is on TCP, you can relay their messaged through ardop or something.
-- Message translation
-  - If someone is chatting in another language, automatically translate to and from their language.
-
 ## Writing Plugins
+
+STOP! - It's not ready. If you decide to anyway:
 
 0. Be WARNED that the plugin interface may change in the future. If this does, the 'Core' plugin version will increment.
 1. Copy hamChatPlugin.py to your new plugin file name, into the `plugins` folder
@@ -113,10 +116,24 @@ sense and be easy for the plugin authors to understand exactly what they do.
 8. TEST THESE ON AIR WITH MULTPLE STATIONS BEFORE COMMITTING! Avoid WOMM (Works On My Machine) syndrome as much as possible.
 9. Provide feedback on how development went. For me, because I wrote the whole ting, it's easy to remember how to work around issues. If there is a problem where doing something is harder than it should be, and you've reviewed all the example plugins, please send an email or open an issue.
 
-## Known Bugs
-0. See `ARDOPCF FEC bugs.md`
-1. If there is unprocessed data in the incoming data buffer, especially if it's not a complete hamChat packet, it will be lost/ignored.
-
-## Troubleshooting
-1. When using ARDOPCF, sometimes you need to send one packet/recieve at least one packet for ardop to 'get with the program' and start giving you good data.
-2. If your data never sends, make sure you are running ardop with the proper arguments. I often accidentally leave out the second audio source identifier.
+## Ideas for Plugins
+- Automatic Link Establishment
+  - Use rigctld to hop around frequencies waiting to be 'called'
+- Advanced Rig Control (virtual VFO/frequency favorites)
+- Data Mode Negotiation
+  - If you have a large file, auto negotiate the fastest data rate avaliable for the channel.
+  - (may be rolled in with ARQ modes)
+- Data Relay Request
+  - A -> B went OK, but C wanted it too. C can request B to give it to them.
+- gpsd Squaking
+  - Send an APRS-compatible message (or whatever message we might want)
+- Notification System
+  - Ding on message reciept, send you an email or text message, or connect to a custom phone app
+- BBS Server
+  - If clients connect to you, you can post and respond to messages in a local database.
+- Callsign resolving
+  - Fetch from QRZ or something
+- Cross-transport forwarding
+  - If someone is on TCP, you can relay their messaged through ardop or something.
+- Message translation
+  - If someone is chatting in another language, automatically translate to and from their language.
