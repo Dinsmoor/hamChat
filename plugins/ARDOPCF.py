@@ -2,8 +2,16 @@ import socket
 import time
 import threading
 import tkinter as tk
+from tkinter import ttk
 import json
+import os
+#type help
 from hamChatPlugin import hamChatPlugin
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from main import HamChat
+else:
+    HamChat = None
 
 """
 Standard hamChat header format:
@@ -12,13 +20,23 @@ N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 """
 
 class ARDOPCF(hamChatPlugin):
-    def __init__(self, host_interface):
+    def __init__(self, host_interface: HamChat):
         self.info = """
         This plugin interfaces with the ARDOPC TNC to provide ARDOP transport for hamChat.
         Make sure ardopcf is running on localhost on ports 8515 and 8516.
         ex. ./ardopcf 8515 plughw:1,0 plughw:1,0
         Get ARDOPCF here: https://github.com/pflarue/ardop
         """
+        self.definition = {
+            'author': 'Tyler Dinsmoor/K7OTR',
+            'name': 'ARDOPCF',
+            'version': '0.1',
+            'description': self.info,
+            'transport': 'ARDOP',
+            'handlers': [],
+            'protocol_fields': [],
+            'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
+        }
         self.sock_cmd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock_data = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -78,47 +96,191 @@ class ARDOPCF(hamChatPlugin):
             '4FSK.2000.600S': 0
         }
 
+        self.arq_bw_modes = [
+            '2000MAX',
+            '1000MAX',
+            '500MAX',
+            '200MAX',
+            '2000FORCE',
+            '1000FORCE',
+            '500FORCE',
+            '200FORCE',
+        ]
+
         self.state = {
+            # general states
+            'host': 'localhost',
+            'port': 8515,
             'state': 'DISC',
+            'protocolmode': 'FEC', # FEC, ARQ, RXO
             'buffer': 0,
             'ptt': False,
             'mycall': 'N0CALL',
+            'myaux': '',
             'gridsquare': 'AA00AA',
+            'busydet': True,
+            'drivelevel': '100', # 0-100
+            'cwid': 'TRUE', # TRUE, ONOFF, FALSE
+            'enablepingack': True,
+            'ping_count': 1, # 1-15
+            'extradelay': 0, # 0-100000
+            'leader': 120, # 120-2500
+            'listen': True,
+            'loglevel': 7, # 0-8
+            'monitor': False,
+            'capture': '',
+            'playback': '',
+            'squelch': 5, # 1-10
+            'trailer': 20, # 0-200
+            'tuningrange': 100, # 0-200
+            'use600modes': True,
+            'version': '',
+            # FEC mode states
             'fec_mode': '4FSK.200.50S',
             'protocol_mode': 'FEC',
             'fec_repeats': 0,
-            'host': 'localhost',
-            'port': 8515
-
+            'fecid': False,
+            # ARQ mode states
+            'arq_dialing_quantity': 2, # 2-15
+            'arqbw': '1000MAX',
+            'arqtimeout': 30, # 30-240
+            'autobreak': True,
+            'busyblock': True,
+            'callbw': self.arq_bw_modes[2],
         }
         self._load_settings_from_file()
 
-        self.ardop_host_var = tk.StringVar()
-        self.ardop_port_var = tk.IntVar()
-        self.ardop_host_var.set(self.state.get('host'))
-        self.ardop_port_var.set(self.state.get('port'))
+        self.info_commands = [
+            'state',
+            'protocolmode', # FEC, ARQ, RXO
+            'buffer',
+            'mycall',
+            'myaux',
+            'gridsquare',
+            'busydet',
+            'drivelevel', # 0-100
+            'cwid', # TRUE, ONOFF, FALSE
+            'enablepingack',
+            'extradelay', # 0-100000
+            'leader', # 120-2500
+            'listen',
+            'loglevel', # 0-8
+            'monitor',
+            'capture',
+            'playback',
+            'squelch', # 1-10
+            'trailer', # 0-200
+            'tuningrange', # 0-200
+            'use600modes',
+            'version',
+        ]
 
-        self.definition = {
-            'author': 'Tyler Dinsmoor/K7OTR',
-            'name': 'ARDOPCF',
-            'version': '0.1',
-            'description': self.info,
-            'transport': 'ARDOP',
-            'handlers': [],
-            'protocol_fields': [],
-            'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
-        }
+        self.ardop_host_var = tk.StringVar()
+        self.ardop_host_var.set(self.state.get('host'))
+        self.ardop_port_var = tk.IntVar()
+        self.ardop_port_var.set(self.state.get('port'))
+        self.state_var = tk.StringVar()
+        self.state_var.set(self.state.get('state'))
+        self.protocolmode_var = tk.StringVar()
+        self.protocolmode_var.set(self.state.get('protocolmode'))
+        self.buffer_var = tk.IntVar()
+        self.buffer_var.set(self.state.get('buffer'))
+        self.mycall_var = tk.StringVar()
+        self.mycall_var.set(self.state.get('mycall'))
+        self.myaux_var = tk.StringVar()
+        self.myaux_var.set(self.state.get('myaux'))
+        self.gridsquare_var = tk.StringVar()
+        self.gridsquare_var.set(self.state.get('gridsquare'))
+        self.busydet_var = tk.BooleanVar()
+        self.busydet_var.set(self.state.get('busydet'))
+        self.drivelevel_var = tk.StringVar()
+        self.drivelevel_var.set(self.state.get('drivelevel'))
+        self.cwid_var = tk.StringVar()
+        self.cwid_var.set(self.state.get('cwid'))
+        self.enablepingack_var = tk.BooleanVar()
+        self.enablepingack_var.set(self.state.get('enablepingack'))
+        self.ping_count_var = tk.IntVar()
+        self.ping_count_var.set(self.state.get('ping_count'))
+        self.extradelay_var = tk.IntVar()
+        self.extradelay_var.set(self.state.get('extradelay'))
+        self.leader_var = tk.IntVar()
+        self.leader_var.set(self.state.get('leader'))
+        self.listen_var = tk.BooleanVar()
+        self.listen_var.set(self.state.get('listen'))
+        self.loglevel_var = tk.IntVar()
+        self.loglevel_var.set(self.state.get('loglevel'))
+        self.monitor_var = tk.BooleanVar()
+        self.monitor_var.set(self.state.get('monitor'))
+        self.capture_var = tk.StringVar()
+        #self.capture_var.set(self.state.get('capture'))
+        self.playback_var = tk.StringVar()
+        #self.playback_var.set(self.state.get('playback'))
+        self.squelch_var = tk.IntVar()
+        self.squelch_var.set(self.state.get('squelch'))
+        self.trailer_var = tk.IntVar()
+        self.trailer_var.set(self.state.get('trailer'))
+        self.tuningrange_var = tk.IntVar()
+        self.tuningrange_var.set(self.state.get('tuningrange'))
+        self.use600modes_var = tk.BooleanVar()
+        self.use600modes_var.set(self.state.get('use600modes'))
+        self.version_var = tk.StringVar()
+        #self.version_var.set(self.state.get('version'))
+        self.fec_mode_var = tk.StringVar()
+        self.fec_mode_var.set(self.state.get('fec_mode'))
+        self.protocol_mode_var = tk.StringVar()
+        self.protocol_mode_var.set(self.state.get('protocol_mode'))
+        self.fec_repeats_var = tk.IntVar()
+        self.fec_repeats_var.set(self.state.get('fec_repeats'))
+        self.arq_dialing_quantity_var = tk.IntVar()
+        self.arq_dialing_quantity_var.set(self.state.get('arq_dialing_quantity'))
+        self.arqbw_var = tk.StringVar()
+        self.arqbw_var.set(self.state.get('arqbw'))
+        self.arqtimeout_var = tk.IntVar()
+        self.arqtimeout_var.set(self.state.get('arqtimeout'))
+        self.autobreak_var = tk.BooleanVar()
+        self.autobreak_var.set(self.state.get('autobreak'))
+        self.busyblock_var = tk.BooleanVar()
+        self.busyblock_var.set(self.state.get('busyblock'))
+        self.callbw_var = tk.StringVar()
+        self.callbw_var.set(self.state.get('callbw'))
+
+        self.record_command_response = False
         # initialize the ARDOPC client
         self.connect_to_ardopcf()
         #self.init_tnc() # we end up doing this in listen_for_command_responses
-        self.fec_mode_var = tk.StringVar()
-        self.fec_mode_var.set(self.state.get('fec_mode'))
-        self.fec_repeats_var = tk.IntVar()
-        self.fec_repeats_var.set(self.state.get('fec_repeats'))
-        self.record_command_response = False
 
         self.command_listen = threading.Thread(target=self.listen_for_command_responses)
         self.command_listen.start()
+
+        
+    def arq_call(self, callsign: str):
+        callsign = self.host_interface.get_recipients().split(',')[0]
+        self.initialize_arq()
+        self.cmd_response(command=f'ARQCALL {callsign} {self.state.get("arq_dialing_quantity")}')
+
+    def ping(self):
+        # to ping we need mode to be arq, listen to be true, and to have a call sign to ping
+        callsign = self.host_interface.get_recipients().split(',')[0]
+        self.cmd_response(command='PROTOCOLMODE ARQ')
+        self.cmd_response(command=f'LISTEN {str(self.state.get("listen"))}')
+        self.cmd_response(command=f'PING {callsign} {self.state.get("ping_count")}')
+        # then, we just need to handle the command response which will be a PINGACK, if we get one
+        # format: PINGACK SNdB Quality
+        # SNdB is the signal to noise ratio in dB
+        # Quality is the constellation quality of the signal, 0-100
+
+    def initialize_arq(self):
+        print("ARDOP Initializing TNC in ARQ Mode")
+        self.cmd_response(command='INITIALIZE')
+        self.cmd_response(command='PROTOCOLMODE ARQ')
+        self.cmd_response(command=f'ARQBW {self.state.get("arqbw")}')
+        self.cmd_response(command=f'ARQTIMEOUT {self.state.get("arqtimeout")}')
+        self.cmd_response(command=f'AUTOBREAK {str(self.state.get("autobreak"))}')
+        self.cmd_response(command=f'BUSYBLOCK {str(self.state.get("busyblock"))}')
+        self.cmd_response(command=f'CALLBW {self.state.get("callbw")}')
+        self.cmd_response(command=f'LISTEN {str(self.state.get("listen"))}')
+        self.cmd_response(command=f'ENABLEPINGACK {str(self.state.get("enablepingack"))}')
+        self.cmd_response(command=f'USE600MODES {str(self.state.get("use600modes"))}')
 
     def is_ready(self):
         try:
@@ -143,8 +305,8 @@ class ARDOPCF(hamChatPlugin):
             self.sock_data.connect((self.state.get('host'), int(self.state.get('port'))+1))
             self.sock_data.setblocking(False)
             time.sleep(0.1)
+            self.init_tnc_fec()
             self.ready.set("Ready")
-            self.init_tnc()
             self.ardop_status_label.config(fg='green')
         except OSError:
             if self.is_socket_connected(self.sock_cmd):
@@ -163,20 +325,12 @@ class ARDOPCF(hamChatPlugin):
                 pass
             
 
-    def init_tnc(self):
-        print("ARDOP Initializing TNC")
+    def init_tnc_fec(self):
+        print("ARDOP Initializing TNC in FEC Mode")
         self.cmd_response(command='INITIALIZE')
-        self.cmd_response(command=f'MYCALL {self.state.get("mycall")}')
-        self.cmd_response(command=f'GRIDSQUARE {self.state.get("gridsquare")}')
         self.cmd_response(command='PROTOCOLMODE FEC')
-        self.cmd_response(command=f'FECMODE {self.state.get("fec_mode")}')
-        self.cmd_response(command=f'FECREPEATS {self.state.get("fec_repeats")}')
-        self.cmd_response(command='FECID 1')
-        self.cmd_response(command='LISTEN 1')
-        self.cmd_response(command='ENABLEPINGACK 1')
-        self.cmd_response(command='USE600MODES 1') # symbol rate violation if on HF >:^)
+        self.set_tnc_settings()
         time.sleep(0.25)
-        print("ARDOP TNC Initialized")
 
     def show_help_window(self):
         help_window = tk.Toplevel()
@@ -230,12 +384,10 @@ class ARDOPCF(hamChatPlugin):
                 self.state.update(json.load(f))
         except FileNotFoundError:
             pass
+        except json.JSONDecodeError:
+            os.remove('plugins/ardopcf_settings.json')
 
     def on_settings_update(self):
-        self.state['mycall'] = self.host_interface.settings['callsign']
-        self.state['gridsquare'] = self.host_interface.settings['gridsquare']
-        self.state['fec_mode'] = self.fec_mode_var.get()
-        self.state['fec_repeats'] = self.fec_repeats_var.get()
         # if we changed our host/port, we need to reconnect
         if self.state['host'] != self.ardop_host_var.get() or self.state['port'] != self.ardop_port_var.get():
             self.state['host'] = self.ardop_host_var.get()
@@ -243,6 +395,8 @@ class ARDOPCF(hamChatPlugin):
             self.ready.set("Not Ready")
             self.ardop_status_label.config(fg='red')
             self.connect_to_ardopcf()
+        
+        self.update_state_from_settings()
         
         self._save_settings_to_file()
         # If the host application change their settings, 
@@ -254,36 +408,179 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command=f'GRIDSQUARE {self.state["gridsquare"]}', wait=False)
         self.cmd_response(command=f'FECMODE {self.state["fec_mode"]}', wait=False)
         self.cmd_response(command=f'FECREPEATS {self.state["fec_repeats"]}', wait=False)
+
+    def set_tnc_settings(self):
+        for command in self.info_commands:
+            command = command + ' ' + str(self.state.get(command))
+            self.cmd_response(command=command, wait=False)
+
+    def query_tnc_settings(self):
+        for command in self.info_commands:
+            self.cmd_response(command=command, wait=False)
+        self.update_state_from_settings()
+
+    def create_settings_tab_general(self, general_tab):
+        tk.Label(general_tab, text="Host").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.ardop_host_entry = ttk.Entry(general_tab, textvariable=self.ardop_host_var)
+        self.ardop_host_entry.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Port").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.ardop_port_spinbox = ttk.Spinbox(general_tab, from_=0, to=65535, width=20, textvariable=self.ardop_port_var)
+        self.ardop_port_spinbox.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="My Call").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.mycall_entry = ttk.Entry(general_tab, textvariable=self.mycall_var)
+        self.mycall_entry.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="My Aux").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.myaux_entry = ttk.Entry(general_tab, textvariable=self.myaux_var)
+        self.myaux_entry.grid(row=3, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Grid Square").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        self.gridsquare_entry = ttk.Entry(general_tab, textvariable=self.gridsquare_var)
+        self.gridsquare_entry.grid(row=4, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        self.busydet_entry = ttk.Checkbutton(general_tab, text="Busy Detection", variable=self.busydet_var)
+        self.busydet_entry.grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Drive Level").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        self.drivelevel_entry = ttk.Spinbox(general_tab, from_=0, to=100, width=20, textvariable=self.drivelevel_var)
+        self.drivelevel_entry.grid(row=6, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="CW ID").grid(row=7, column=0, sticky=tk.W, padx=5, pady=5)
+        self.cwid_entry = ttk.OptionMenu(general_tab, self.cwid_var, 'TRUE', 'ONOFF', 'FALSE')
+        self.cwid_entry.grid(row=7, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        self.enablepingack_entry = ttk.Checkbutton(general_tab, text="Enable Ping Ack", variable=self.enablepingack_var)
+        self.enablepingack_entry.grid(row=8, column=0, sticky=tk.W, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Ping Count").grid(row=9, column=0, sticky=tk.W, padx=5, pady=5)
+        self.ping_count_entry = ttk.Spinbox(general_tab, from_=1, to=15, width=20, textvariable=self.ping_count_var)
+        self.ping_count_entry.grid(row=9, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Extra Delay").grid(row=10, column=0, sticky=tk.W, padx=5, pady=5)
+        self.extradelay_entry = ttk.Spinbox(general_tab, from_=0, to=100000, width=20, textvariable=self.extradelay_var)
+        self.extradelay_entry.grid(row=10, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Leader length").grid(row=11, column=0, sticky=tk.W, padx=5, pady=5)
+        self.leader_entry = ttk.Spinbox(general_tab, from_=120, to=2500, width=20, textvariable=self.leader_var)
+        self.leader_entry.grid(row=11, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        self.listen_entry = ttk.Checkbutton(general_tab, text="Listen", variable=self.listen_var)
+        self.listen_entry.grid(row=12, column=0, sticky=tk.W, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Log Level").grid(row=13, column=0, sticky=tk.W, padx=5, pady=5)
+        self.loglevel_entry = ttk.Spinbox(general_tab, from_=0, to=8, width=20, textvariable=self.loglevel_var)
+        self.loglevel_entry.grid(row=13, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        self.monitor_entry = ttk.Checkbutton(general_tab, text="Monitor", variable=self.monitor_var)
+        self.monitor_entry.grid(row=14, column=0, sticky=tk.W, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Capture Device").grid(row=15, column=0, sticky=tk.W, padx=5, pady=5)
+        self.capture_entry = ttk.Entry(general_tab, textvariable=self.capture_var)
+        self.capture_entry.grid(row=15, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Playback Device").grid(row=16, column=0, sticky=tk.W, padx=5, pady=5)
+        self.playback_entry = ttk.Entry(general_tab, textvariable=self.playback_var)
+        self.playback_entry.grid(row=16, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Squelch").grid(row=17, column=0, sticky=tk.W, padx=5, pady=5)
+        self.squelch_entry = ttk.Spinbox(general_tab, from_=1, to=10, width=20, textvariable=self.squelch_var)
+        self.squelch_entry.grid(row=17, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Trailer Length").grid(row=18, column=0, sticky=tk.W, padx=5, pady=5)
+        self.trailer_entry = ttk.Spinbox(general_tab, from_=0, to=200, width=20, textvariable=self.trailer_var)
+        self.trailer_entry.grid(row=18, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Tuning Range").grid(row=19, column=0, sticky=tk.W, padx=5, pady=5)
+        self.tuningrange_entry = ttk.Spinbox(general_tab, from_=0, to=200, width=20, textvariable=self.tuningrange_var)
+        self.tuningrange_entry.grid(row=19, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        self.use600modes_entry = ttk.Checkbutton(general_tab, text="Use 600 Modes", variable=self.use600modes_var)
+        self.use600modes_entry.grid(row=20, column=0, sticky=tk.W, padx=5, pady=5)
+
+        tk.Label(general_tab, text="Version").grid(row=21, column=0, sticky=tk.W, padx=5, pady=5)
+        self.version_entry = ttk.Entry(general_tab, textvariable=self.version_var)
+        self.version_entry.grid(row=21, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        general_tab.columnconfigure(1, weight=1)
         
+
+    def create_settings_tab_fec(self, fec_tab):
+        tk.Label(fec_tab, text="FEC Mode").pack()
+        
+        self.fec_mode_menu = tk.OptionMenu(fec_tab, self.fec_mode_var, *self.fec_modes)
+        self.fec_mode_var.set(self.state['fec_mode'])
+        self.fec_mode_menu.pack()
+
+        tk.Label(fec_tab, text="FEC Repeats").pack()
+        self.fec_repeats_scale = tk.Scale(fec_tab, from_=0, to=5, orient=tk.HORIZONTAL, variable=self.fec_repeats_var)
+        self.fec_repeats_var.set(self.state['fec_repeats'])
+        self.fec_repeats_scale.pack()
+
+    def create_settings_tab_arq(self, arq_tab):
+        # ARQ Dialing Quantity
+        ttk.Label(arq_tab, text="Dialing Attempts:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.arq_dialing_quantity_spinbox = ttk.Spinbox(arq_tab, from_=2, to=15, width=20, textvariable=self.arq_dialing_quantity_var)
+        self.arq_dialing_quantity_spinbox.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        # ARQ Bandwidth
+        ttk.Label(arq_tab, text="ARQ Bandwidth:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.arq_bw_menu = tk.OptionMenu(arq_tab, self.arqbw_var, *self.arq_bw_modes)
+        self.arqbw_var.set(self.state['arqbw'])
+        self.arq_bw_menu.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        # ARQ Timeout
+        ttk.Label(arq_tab, text="ARQ Timeout:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.arqtimeout_entry = ttk.Spinbox(arq_tab, from_=30, to=240, width=20, textvariable=self.arqtimeout_var)
+        self.arqtimeout_entry.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        # Auto Break
+        #self.autobreak_check = ttk.Checkbutton(arq_tab, text="Auto Break", variable=self.autobreak_var)
+        #self.autobreak_check.grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+
+        # Busy Block
+        self.busyblock_check = ttk.Checkbutton(arq_tab, text="Busy Block", variable=self.busyblock_var)
+        self.busyblock_check.grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+
+        # Call Bandwidth (needs developer review, what does this actually do in ardopcf?)
+        #ttk.Label(arq_tab, text="Call Bandwidth:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+        #self.callbw_entry = ttk.OptionMenu(arq_tab, self.callbw_var, *self.arq_bw_modes)
+        #self.callbw_entry.grid(row=5, column=1, sticky=tk.EW, padx=5, pady=5)
+        arq_tab.columnconfigure(1, weight=1)
+
     def create_settings_menu(self):
         '''This is called whenever this plugin's settings button is clicked. It should create
         a new window with the settings for this plugin.'''
+        self.query_tnc_settings()
+        self.update_tk_vars()
         self.settings_window = tk.Toplevel()
         self.settings_window.title("ARDOPCF Settings")
         topframe = tk.Frame(self.settings_window)
         topframe.pack(side=tk.TOP)
 
-        self.ardop_connection_frame = tk.Frame(topframe)
-        tk.Label(self.ardop_connection_frame, text="Host").pack()
-        self.ardop_host_entry = tk.Entry(self.ardop_connection_frame, textvariable=self.ardop_host_var)
-        self.ardop_host_entry.pack()
-        tk.Label(self.ardop_connection_frame, text="Port").pack()
-        self.ardop_port_spinbox = tk.Spinbox(self.ardop_connection_frame, from_=0, to=65535, width=20, textvariable=self.ardop_port_var)
-        self.ardop_port_spinbox.pack()
-        self.ardop_connection_frame.pack(side=tk.LEFT)
+        # add a tabbed interface for the settings
+        tabcontrol = ttk.Notebook(topframe)
+        tabcontrol.pack(expand=True, fill='x')
 
-        self.ardopsettings_frame = tk.Frame(topframe)
-        tk.Label(self.ardopsettings_frame, text="FEC Mode").pack()
-        
-        self.fec_mode_menu = tk.OptionMenu(self.ardopsettings_frame, self.fec_mode_var, *self.fec_modes)
-        self.fec_mode_var.set(self.state['fec_mode'])
-        self.fec_mode_menu.pack()
+        general_tab = tk.Frame(tabcontrol)
+        fec_tab = tk.Frame(tabcontrol)
+        arq_tab = tk.Frame(tabcontrol)
 
-        tk.Label(self.ardopsettings_frame, text="FEC Repeats").pack()
-        self.fec_repeats_scale = tk.Scale(self.ardopsettings_frame, from_=0, to=5, orient=tk.HORIZONTAL, variable=self.fec_repeats_var)
-        self.fec_repeats_var.set(self.state['fec_repeats'])
-        self.fec_repeats_scale.pack()
-        self.ardopsettings_frame.pack(side=tk.RIGHT)
+        tabcontrol.add(general_tab, text="General")
+        tabcontrol.add(fec_tab, text="FEC")
+        tabcontrol.add(arq_tab, text="ARQ")
+
+        # tk.Label(general_tab, text="Host").pack()
+        # self.ardop_host_entry = tk.Entry(general_tab, textvariable=self.ardop_host_var)
+        # self.ardop_host_entry.pack()
+        # tk.Label(general_tab, text="Port").pack()
+        # self.ardop_port_spinbox = tk.Spinbox(general_tab, from_=0, to=65535, width=20, textvariable=self.ardop_port_var)
+        # self.ardop_port_spinbox.pack()
+
+        self.create_settings_tab_general(general_tab)
+        self.create_settings_tab_fec(fec_tab)
+        self.create_settings_tab_arq(arq_tab)
 
         buttonframe = tk.Frame(self.settings_window)
         buttonframe.pack(side=tk.BOTTOM)
@@ -299,6 +596,15 @@ class ARDOPCF(hamChatPlugin):
         self.save_button.bind('<Return>', self.on_settings_update)
         self.save_button.pack(side=tk.BOTTOM)
 
+    def on_protocol_mode_change(self, *args):
+        self.state['protocolmode'] = self.protocolmode_var.get()
+        if self.state['protocolmode'] == 'FEC':
+            self.init_tnc_fec()
+        elif self.state['protocolmode'] == 'ARQ':
+            self.initialize_arq()
+        else:
+            pass
+
     def create_plugin_frame(self, tkParent):
         ardop_frame = tk.Frame(tkParent)
         statusframe = tk.Frame(ardop_frame)
@@ -308,7 +614,14 @@ class ARDOPCF(hamChatPlugin):
         self.ardop_status_label = tk.Label(statusframe, textvariable=self.ready)
         self.ardop_status_label.pack(side=tk.RIGHT)
         if self.is_ready():
+            self.ready.set("Ready")
             self.ardop_status_label.config(fg='green')
+        protocol_label = tk.Label(ardop_frame, text="Protocol Mode")
+        protocol_label.pack()
+        protocolmode_selector = tk.OptionMenu(ardop_frame, self.protocolmode_var, 'FEC', 'ARQ', 'RXO', command=self.on_protocol_mode_change)
+        protocolmode_selector.pack()
+        ping_button = tk.Button(ardop_frame, text="Ping", command=self.ping)
+        ping_button.pack()
         ardop_button = tk.Button(ardop_frame, text="Configure", command=self.create_settings_menu)
         ardop_button.pack(side=tk.BOTTOM)
         self.clear_buffer_button = tk.Button(ardop_frame, text="Stop/Clear Buffer", command=self.on_clear_buffer)
@@ -380,10 +693,12 @@ class ARDOPCF(hamChatPlugin):
             print(f"ARDOP Buffer Ready: {self.state.get('buffer')} bytes.")
 
     def on_transmit_buffer(self):
-        # twice! because the TNC can be a little finicky on first transmit
-        # also, sometimes the command recieve buffer will 'double up' on itself.
-        self.cmd_response(command='FECSEND TRUE', wait=False)
-        self.cmd_response(command='FECSEND TRUE', wait=False)
+        if self.state['protocol_mode'] == 'ARQ':
+            self.arq_call()
+        elif self.state['protocol_mode'] == 'FEC':
+            self.cmd_response(command='FECSEND TRUE', wait=False)
+        else:
+            pass
 
     def on_clear_buffer(self):
         self.cmd_response(command='PURGEBUFFER', wait=False)
@@ -492,7 +807,7 @@ class ARDOPCF(hamChatPlugin):
     def cmd_response(self, command=None, wait=False) -> str:
         # this does not play nice with anything.
         # If I were smarter, I would have done this a different way.
-        # The main limitation is PTT control from ardop being very time sensitive.
+        # The main limitation is PTT control from ardop being time sensitive. (<50ms)
         # If it weren't for that, everything would be so much easier.
         if not self.is_ready():
             return(None)
@@ -526,8 +841,73 @@ class ARDOPCF(hamChatPlugin):
             # if we get here, we should be reading as fast as possible
         return line.decode()
     
+
+    def update_state_from_settings(self):
+        self.state['host'] = self.ardop_host_var.get()
+        self.state['port'] = self.ardop_port_var.get()
+        self.state['mycall'] = self.mycall_var.get()
+        self.state['gridsquare'] = self.gridsquare_var.get()
+        self.state['busydet'] = self.busydet_var.get()
+        self.state['drivelevel'] = self.drivelevel_var.get()
+        self.state['cwid'] = self.cwid_var.get()
+        self.state['enablepingack'] = self.enablepingack_var.get()
+        self.state['ping_count'] = self.ping_count_var.get()
+        self.state['extradelay'] = self.extradelay_var.get()
+        self.state['leader'] = self.leader_var.get()
+        self.state['listen'] = self.listen_var.get()
+        self.state['loglevel'] = self.loglevel_var.get()
+        self.state['monitor'] = self.monitor_var.get()
+        #self.state['capture'] = self.capture_var.get()
+        #self.state['playback'] = self.playback_var.get()
+        self.state['squelch'] = self.squelch_var.get()
+        self.state['trailer'] = self.trailer_var.get()
+        self.state['tuningrange'] = self.tuningrange_var.get()
+        self.state['use600modes'] = self.use600modes_var.get()
+        #self.state['version'] = self.version_var.get()
+        self.state['fec_mode'] = self.fec_mode_var.get()
+        self.state['fec_repeats'] = self.fec_repeats_var.get()
+        self.state['arq_dialing_quantity'] = self.arq_dialing_quantity_var.get()
+        self.state['arqbw'] = self.arqbw_var.get()
+        self.state['arqtimeout'] = self.arqtimeout_var.get()
+        self.state['autobreak'] = self.autobreak_var.get()
+        self.state['busyblock'] = self.busyblock_var.get()
+        self.state['callbw'] = self.callbw_var.get()
+
+
+    def update_tk_vars(self):
+        self.mycall_var.set(self.state['mycall'])
+        self.gridsquare_var.set(self.state['gridsquare'])
+        self.busydet_var.set(self.state['busydet'])
+        self.drivelevel_var.set(self.state['drivelevel'])
+        self.cwid_var.set(self.state['cwid'])
+        self.enablepingack_var.set(self.state['enablepingack'])
+        self.ping_count_var.set(self.state['ping_count'])
+        self.extradelay_var.set(self.state['extradelay'])
+        self.leader_var.set(self.state['leader'])
+        self.listen_var.set(self.state['listen'])
+        self.loglevel_var.set(self.state['loglevel'])
+        self.monitor_var.set(self.state['monitor'])
+        self.capture_var.set(self.state['capture'])
+        self.playback_var.set(self.state['playback'])
+        self.squelch_var.set(self.state['squelch'])
+        self.trailer_var.set(self.state['trailer'])
+        self.tuningrange_var.set(self.state['tuningrange'])
+        self.use600modes_var.set(self.state['use600modes'])
+        self.version_var.set(self.state['version'])
+        self.fec_mode_var.set(self.state['fec_mode'])
+        self.fec_repeats_var.set(self.state['fec_repeats'])
+        self.arq_dialing_quantity_var.set(self.state['arq_dialing_quantity'])
+        self.arqbw_var.set(self.state['arqbw'])
+        self.arqtimeout_var.set(self.state['arqtimeout'])
+        self.autobreak_var.set(self.state['autobreak'])
+        self.busyblock_var.set(self.state['busyblock'])
+        self.callbw_var.set(self.state['callbw'])
+
+
     def listen_for_command_responses(self):
         # this is our main event loop for handling command responses from the TNC
+        # wherever we send a command in this code, here is were we will asynchronously
+        # parse and handle the response.
         while not self.stop_event.is_set():
             debug = self.host_interface.debug.get()
             if not self.is_ready():
@@ -538,28 +918,95 @@ class ARDOPCF(hamChatPlugin):
                 continue
             response = self.cmd_response(wait=True)
             self.command_response_history.append(response)
-            #if debug:
-            #    print(f"ARDOP Response: {response}")
 
             try:
                 for entry in self.command_response_history:
-                    # Everything the first things in this group are very time sensitive
                     if ('PTT TRUE' in entry) or ('T T' in entry):
                         self.state['ptt'] = True
                         self.host_interface.plugMgr.on_key_transmitter()
                     elif ('PTT FALSE' in entry) or ('T F' in entry):
                         self.state['ptt'] = False
                         self.host_interface.plugMgr.on_unkey_transmitter()
+                    elif entry.startswith('MYCALL'):
+                        self.state['mycall'] = entry.split()[-1]
+                    elif entry.startswith('MYAUX'):
+                        if len(entry.split()) > 1:
+                            self.state['myaux'] = entry.split()[-1]
+                    elif entry.startswith('PURGEBUFFER'):
+                        pass
+                    elif entry.startswith('GRIDSQUARE'):
+                        self.state['gridsquare'] = entry.split()[-1]
                     elif entry.startswith('BUFFER'):
-                        self.state['buffer'] = int(entry.split()[1])
+                        self.state['buffer'] = int(entry.split()[-1])
                     elif entry.startswith('STATE'):
-                        self.state['state'] = entry.split()[1]
+                        self.state['state'] = entry.split()[-1]
                     elif entry.startswith('FECSEND'):
                         pass
                     elif entry.startswith('PROTOCOLMODE'):
-                        self.state['protocol_mode'] = entry.split()[1]
+                        self.state['protocol_mode'] = entry.split()[-1]
+                    elif entry.startswith('PING'):
+                        self.host_interface.print_to_chatwindow(entry)
+                    elif entry.startswith('PINGACK'):
+                        self.host_interface.print_to_chatwindow(entry)
+                    elif entry.startswith('FECMODE'):
+                        self.state['fec_mode'] = entry.split()[-1]
+                    elif entry.startswith('FECREPEATS'):
+                        self.state['fec_repeats'] = int(entry.split()[-1])
+                    elif entry.startswith('LISTEN'):
+                        self.state['listen'] = entry.split()[-1]
+                    elif entry.startswith('ENABLEPINGACK'):
+                        self.state['enablepingack'] = entry.split()[-1]
+                    elif entry.startswith('USE600MODES'):
+                        #FIXME this does not properly set the use600modes variable
+                        if entry.split()[-1] == 'FALSE':
+                            self.state['use600modes'] = False
+                        else:
+                            self.state['use600modes'] = True
+                    elif entry.startswith('VERSION'):
+                        self.state['version'] = entry.split()[-1]
+                    elif entry.startswith('LOGLEVEL'):
+                        self.state['loglevel'] = int(entry.split()[-1])
+                    elif entry.startswith('MONITOR'):
+                        self.state['monitor'] = entry.split()[-1]
+                    elif entry.startswith('CAPTURE'):
+                        self.state['capture'] = entry.split()[-1]
+                    elif entry.startswith('PLAYBACK'):
+                        self.state['playback'] = entry.split()[-1]
+                    elif entry.startswith('SQUELCH'):
+                        self.state['squelch'] = int(entry.split()[-1])
+                    elif entry.startswith('TRAILER'):
+                        self.state['trailer'] = int(entry.split()[-1])
+                    elif entry.startswith('TUNINGRANGE'):
+                        self.state['tuningrange'] = int(entry.split()[-1])
+                    elif entry.startswith('EXTRADELAY'):
+                        self.state['extradelay'] = int(entry.split()[-1])
+                    elif entry.startswith('LEADER'):
+                        self.state['leader'] = int(entry.split()[-1])
+                    elif entry.startswith('BUSYDET'):
+                        self.state['busydet'] = entry.split()[-1]
+                    elif entry.startswith('DRIVELEVEL'):
+                        self.state['drivelevel'] = entry.split()[-1]
+                    elif entry.startswith('CWID'):
+                        self.state['cwid'] = entry.split()[-1]
+                    elif entry.startswith('ARQBW'):
+                        self.state['arqbw'] = entry.split()[-1]
+                    elif entry.startswith('ARQTIMEOUT'):
+                        self.state['arqtimeout'] = int(entry.split()[-1])
+                    elif entry.startswith('AUTOBREAK'):
+                        self.state['autobreak'] = entry.split()[-1]
+                    elif entry.startswith('BUSYBLOCK'):
+                        self.state['busyblock'] = entry.split()[-1]
+                    elif entry.startswith('CALLBW'):
+                        self.state['callbw'] = entry.split()[-1]
+                    elif entry.startswith('INITIALIZE'):
+                        pass
                     else:
                         pass
+                        #self.host_interface.print_to_chatwindow(entry)
+                    if debug:
+                        if not entry.startswith('BUFFER'):
+                            if not entry.startswith('STATE'):
+                                print(f"ARDOPCF: {entry}")
                     try:
                         if hasattr(self, 'command_history_text') and self.command_history_text.winfo_exists():
                             if self.record_command_response:

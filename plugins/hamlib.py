@@ -2,6 +2,13 @@
 from hamChatPlugin import hamChatPlugin
 import tkinter as tk
 import socket
+import time
+# help us access the main hamChat class in our editor
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from main import HamChat
+else:
+    HamChat = None
 
 """
 Standard hamChat header format:
@@ -10,16 +17,14 @@ N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 """
 
 class Hamlib(hamChatPlugin):
-    def __init__(self, host_interface: object):
+    def __init__(self, host_interface: HamChat):
         super().__init__(host_interface)
 
         self.info = f"""
-        This plugin comminicates with the Hamlib library to control radios, via rigctld.
+        This plugin comminicates with the Hamlib library to control
+        a radio via rigctld.
         On linux, you can start rigctld with the following command:
         rigctld -m 1234 -r /dev/ttyUSB0
-        Right now, this plugin only supports a single radio.
-        If you wanted multiple radios, you would need multiple copies of this plugin, but right
-        now there is no way to specify which radio you are talking to. Might patch that in later.
         https://github.com/Dinsmoor/hamChat
         """
         self.definition = {
@@ -28,6 +33,12 @@ class Hamlib(hamChatPlugin):
             'version': '0.1',
             'description': self.info,
             'depends_on': [{'plugin': 'Core', 'version': '0.1'}],
+        }
+        self.hamlib_status ={
+            'status': 'Not connected',
+            'frequency': '0Hz',
+            'mode': 'MODE-PbHz',
+            'ptt': 'False',
         }
         self.sock_rigctld = None
         self.rigctld_host = 'localhost'
@@ -136,6 +147,16 @@ class Hamlib(hamChatPlugin):
         response = self.read_rigctld_socket()
         return response
     
+    def query_rigctld(self, command: str):
+        # this should be continuously called in a separate thread
+        time.sleep(0.5)
+        if self.sock_rigctld is not None:
+            self.sock_rigctld.sendall(f'{command}\n'.encode())
+            response = self.read_rigctld_socket()
+            if not response:
+                return
+            self.parse_rigctld_response(response)
+
     def get_radio_frequency(self):
         if self.sock_rigctld is not None:
             self.sock_rigctld.sendall(b'f\n')
@@ -156,6 +177,8 @@ class Hamlib(hamChatPlugin):
             self.sock_rigctld.sendall(b'm\n')
             mode = self.read_rigctld_socket()
             # check to see if the mode is a 3-6 character text string (no numbers)
+            if not mode:
+                return
             if not mode.isalpha():
                 return
             passband = self.read_rigctld_socket()
@@ -187,7 +210,7 @@ class Hamlib(hamChatPlugin):
                 if message[-1:] == b'\n':
                     return message.decode().strip()
             except BlockingIOError:
-                break
+                return False
 
     def IPC(self, target_plugin: str, from_plugin: str, command: str, data: bytes = None) -> dict:
         if not target_plugin == self.definition['name']:
@@ -217,7 +240,26 @@ class Hamlib(hamChatPlugin):
             return {"status": self.status.get()}
         else:
             return {"error": "Command not recognized."}
-
+    
+    def parse_rigctld_response(self, response: str):
+        # check if the response is a 9 digit number
+        if response.isdigit() or len(response) != 9:
+            # assume is a frequency
+            response = response[:-6] + '.' + response[-6:-3] + '.' + response[-3:]
+            self.hamlib_status['frequency'] = response
+        if not response:
+            return
+        # check to see if the mode is a 3-6 character text string (no numbers)
+        if response.isalpha():
+            self.hamlib_status['mode'] = response
+        # check to see if the passband is a number longer than 1
+        if response.isdigit() and len(response) > 1:
+            self.hamlib_status['mode'] += f"-{response}Hz"
+        # check to see if the response is a 1 or 0
+        if response == '1' or response == '0':
+            self.hamlib_status['ptt'] = response
+            
+        
 
     def __open_rigctld_socket(self):
         try:

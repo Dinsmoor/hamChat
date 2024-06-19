@@ -44,7 +44,7 @@ class HamChat(tk.Tk):
         our_hostname = socket.gethostname()
         self.title(f"hamChat@{our_hostname}")
         self.resizable(True, True)
-        self.geometry("800x500")
+        self.geometry("1000x650")
         self.settings = {
             'callsign': 'N0CALL',
             'recipients': 'ALL',
@@ -61,7 +61,7 @@ class HamChat(tk.Tk):
         self.transport_status_ready = threading.Event()
         self.transport_status_frame = tk.Frame(self)
         self.debug = tk.BooleanVar()
-        self.debug.set(False)
+        self.debug.set(True)
         
 
         # there is a race condition between the plugins needing to access to the ui and the ui being created

@@ -1,6 +1,10 @@
 import tkinter as tk
 # uncomment when you use this template to create a new plugin
 #from hamChatPlugin import hamChatPlugin
+#from typing import TYPE_CHECKING
+HamChat = type(None)
+#if TYPE_CHECKING:
+#    from main import HamChat
 
 """
 hamChat features a standard header format. This is used to identify the sender,
@@ -18,6 +22,8 @@ N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 #class PluginName(hamChatPlugin):
 class hamChatPlugin:
     def __init__(self, host_interface):
+    # to help with type hinting in VSCode, use this line instead:
+    #def __init__(self, host_interface: HamChat):
         """ This is the base class for all ARDOP Chat plugins, and provide a template for plugin authors."""
 
         self.header_id = ''

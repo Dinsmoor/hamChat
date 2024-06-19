@@ -71,12 +71,14 @@ To run this program:
 
 ## Known Bugs
 0. See `ARDOPCF FEC bugs.md`
-1. If an internal thread crashes, it's not always made apparent to the user, and certain features will stop working. The program may need to be restarted if this happens.
+1. If an internal thread crashes, it's not always made apparent to the user (they must check the console), and certain features will stop working. The program may need to be restarted if this happens.
 2. If the main thread crashes, the program will not exit cleanly. Multiple CTRL+C in the terminal window may be needed.
+3. The UI may not be properly scaled at runtime, and may require the user to resize it. (A main UI rewrite is in order)
+4. 
 
 ## Troubleshooting
-1. When using ARDOPCF, sometimes you need to send one packet/recieve at least one packet for ardopcf to start giving you good data.
-2. If your data never sends, make sure you are running ardopcf with the proper arguments.
+1. When using ardopcf, sometimes you need to send one packet/recieve at least one frame for ardopcf to start giving you good data.
+2. If your data never sends, make sure you are running ardopcf with the proper arguments :^)
 
 
 # For Developers
