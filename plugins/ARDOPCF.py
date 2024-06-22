@@ -253,7 +253,7 @@ class ARDOPCF(hamChatPlugin):
         self.command_listen.start()
 
         
-    def arq_call(self, callsign: str):
+    def arq_call(self):
         callsign = self.host_interface.get_recipients().split(',')[0]
         self.initialize_arq()
         self.cmd_response(command=f'ARQCALL {callsign} {self.state.get("arq_dialing_quantity")}')

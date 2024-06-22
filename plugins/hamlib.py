@@ -98,9 +98,9 @@ class Hamlib(hamChatPlugin):
     def update_plugin_frame(self):
         if self.status.get() == "Connected":
             self.hamlib_status_label.config(fg='green')
-            self.freq.set(f"{self.get_radio_frequency()}Hz")
-            self.mode.set(f"{self.get_radio_mode()}")
-            self.ptt.set(f"PTT: {self.get_ptt_status() == '1'}")
+            #self.freq.set(f"{self.get_radio_frequency()}Hz")
+            #self.mode.set(f"{self.get_radio_mode()}")
+            #self.ptt.set(f"PTT: {self.get_ptt_status() == '1'}")
         else:
             self.hamlib_status_label.config(fg='red')
             self.status.set("Error")
