@@ -12,12 +12,11 @@ hamChat                        Radio
 ---sound modem ------>AUDIO   |     |/   >Also running hamChat
 ```
 
-It is written in python3.6+, and uses no special libraries. It is also not very good (yet.)
-
 ![image](https://github.com/Dinsmoor/hamChat/assets/3772345/9a220a17-47ce-4590-9cd5-8810ec910520)
 
 
 Currently, the following features are implemented:
+- Graphical Desktop Interface
 - Keyboard-to-Keyboard text chat
 - ARDOP FEC mode transport
 - hamlib rig control (PTT and frequency/mode display)
@@ -30,8 +29,8 @@ Currently, the following features are implemented:
 If you have already run amatuer software before, like direwolf, then runing this program is relatively straight forward. 
 
 To use this program, you need:
- 1. Graphical Environment (Linux Recommended)
- 2. Python 3.6+ interpreter -> https://www.python.org/downloads/ (or your system repositories)
+ 1. Graphical Environment (Linux Recommended, Windows instructions not provided as I don't use it, although it has been reported to work on Windows)
+ 2. Python 3.8+ interpreter -> https://www.python.org/downloads/ (or your system repositories)
  3. The ARDOPCF modem -> https://github.com/pflarue/ardop/releases/
  4. A way to connect to a radio (one of the following)
     1. Signalink USB -> https://tigertronics.com/slusbmain.htm
@@ -54,9 +53,9 @@ To run this program:
 
 
 - start rigctld (this is part of hamlib)
-  - On Ubuntu, install the package `libhamlib-utils`
-  - Otherwise, compile from https://github.com/Hamlib/Hamlib
-  - Check if you have a supported radio with `rigctl -l`
+  - On Ubuntu, install the package `libhamlib-utils` or wherever you can get binaries
+    - Otherwise, compile from https://github.com/Hamlib/Hamlib
+  - Check if you have a supported radio (or like model) with `rigctl -l`
   - If supported, run like `rigctld -m your_radio_id -r /dev/ttyUSB0`
     - where your_radio_id is the number you got from rigctl -l, and /dev/ttyUSB0 is whatever serial port you have your radio connected to
   - If NOT supported, try a similar model. If that doesn't work, and you are using something like a digirig for PTT:
@@ -69,16 +68,22 @@ To run this program:
   - Download or clone this repository
   - Run hamchat with `python3 ./main.py`
 
+Some notes:
+- The layout is simple. On the left is the chat window for message composition and addressing. On the right are the settings of plugins.
+- The default chat mode is an ARQ session. You will not be able to see traffic from 3rd parties in this mode by default. Use FEC mode in for group chats/nets.
+- The "recipients" window is comma-delimitted. ARQ will only use the first callsign.
+- Addressing is optional in FEC mode, but used in conjuction with the AutoACK plugin to let you know if the other station got your message.
+
 ## Known Bugs
-0. See `ARDOPCF FEC bugs.md`
+0. See `ARDOPCF FEC bugs.md` for FEC mode related bugs that are likely part of the ARDOPCF modem implementation.
 1. If an internal thread crashes, it's not always made apparent to the user (they must check the console), and certain features will stop working. The program may need to be restarted if this happens.
 2. If the main thread crashes, the program will not exit cleanly. Multiple CTRL+C in the terminal window may be needed.
-3. The UI may not be properly scaled at runtime, and may require the user to resize it. (A main UI rewrite is in order)
-4. 
+3. The UI may not be properly scaled at runtime, and may require the user to resize it where the elements are visible.
+4. Reconnects to the ardopcf and rigctld don't always work right, you may need to restart the program if those programs are shut down.
 
 ## Troubleshooting
 1. When using ardopcf, sometimes you need to send one packet/recieve at least one frame for ardopcf to start giving you good data.
-2. If your data never sends, make sure you are running ardopcf with the proper arguments :^)
+2. If your data never sends, make sure you are running ardopcf with the proper arguments.
 
 
 # For Developers
@@ -87,19 +92,17 @@ To run this program:
 
 Plugins are python files that inherit the hamChatPlugin class, and are located in the plugins folder.
 
-Events will be called by the hamChat, and if a plugin has a hook for it, it will be called.
+Events will be called by hamChat, and if a plugin has a hook for it, it will be called when appropriate.
 
 Plugins can add new windows or widgets, directly issue commands to the TNC, or do pretty much anything.
 
-The reason why you should not write plugins yet, is because I haven't decided the amount of control I will
+The reason why you should not write plugins yet is because I haven't decided the amount of control I will
 let them have, and there may be an issue with resolving conflict, if, for example, more than one plugin trys
 to mess with the same UI element or the chat window. Certain things are also currently unavaliable in a sane way.
-
-Most of all, method names are probably going to change a lot, because I don't like their names, and I want them to make
-sense and be easy for the plugin authors to understand exactly what they do.
+Additionally, I want to rewrite this program from the ground up with better UI and asyncronous operation as a priority.
 
 ## Plugin Rules
-1. Plugins files (python) go in the `plugins` folder (plugin authors should write their settings here too)
+1. Plugins files (python) go in the `plugins` folder (plugin authors should write any settings files here too)
 2. All classes in that folder that inherit from `hamChatPlugin` will be loaded.
 3. Plugin class initialization must accept one argument, which is the GUI instance object.
    - See plugin folder for examples
@@ -110,7 +113,7 @@ STOP! - It's not ready. If you decide to anyway:
 
 0. Be WARNED that the plugin interface may change in the future. If this does, the 'Core' plugin version will increment.
 1. Copy hamChatPlugin.py to your new plugin file name, into the `plugins` folder
-2. Rename the hamChatPlugin to whatever you like, and inherit from `hamChatPlugin`.
+2. Rename the hamChatPlugin class name to whatever you like, and inherit from `hamChatPlugin`.
 3. Write your `self.description`. Be sure to declare any new handlers if you expect to send or receive messages over a transport.
 4. Read the entirity of the comments and examples in `__init__`, they tell you how best to interface with the main program.
 5. Read all the default methods and their descriptions to figure out when you want your code to run. Take note:
@@ -146,3 +149,5 @@ STOP! - It's not ready. If you decide to anyway:
   - If someone is on TCP, you can relay their messaged through ardop or something.
 - Message translation
   - If someone is chatting in another language, automatically translate to and from their language.
+- Winlink client compatibility
+  - Basially just implement https://winlink.org/B2F as a plugin traffic handler. Pretty easy.

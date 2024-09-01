@@ -85,12 +85,12 @@ class Hamlib(hamChatPlugin):
         self.hamlib_status_label.pack(side=tk.RIGHT)
         if self.status.get() == "Connected":
             self.hamlib_status_label.config(fg='green')
-        self.hamlib_freq_label = tk.Label(self.hamlib_frame, textvariable=self.freq)
-        self.hamlib_freq_label.pack()
-        self.hamlib_mode_label = tk.Label(self.hamlib_frame, textvariable=self.mode)
-        self.hamlib_mode_label.pack()
-        self.ptt_label = tk.Label(self.hamlib_frame, textvariable=self.ptt)
-        self.ptt_label.pack()
+        # self.hamlib_freq_label = tk.Label(self.hamlib_frame, textvariable=self.freq)
+        # self.hamlib_freq_label.pack()
+        # self.hamlib_mode_label = tk.Label(self.hamlib_frame, textvariable=self.mode)
+        # self.hamlib_mode_label.pack()
+        # self.ptt_label = tk.Label(self.hamlib_frame, textvariable=self.ptt)
+        # self.ptt_label.pack()
         hamlib_button = tk.Button(self.hamlib_frame, text="Configure", command=self._open_hamlib_config_window)
         hamlib_button.pack(side=tk.BOTTOM)
         self.hamlib_frame.pack()
@@ -104,9 +104,9 @@ class Hamlib(hamChatPlugin):
         else:
             self.hamlib_status_label.config(fg='red')
             self.status.set("Error")
-            self.freq.set("")
-            self.mode.set("")
-            self.ptt.set("")
+            #self.freq.set("")
+            #self.mode.set("")
+            #self.ptt.set("")
 
     
     def _open_hamlib_config_window(self):

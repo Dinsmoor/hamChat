@@ -45,6 +45,7 @@ class ARDOPCF(hamChatPlugin):
         self.command_response_history = []
         self.pending_buffers = []
         self.host_interface = host_interface
+        
         self.ready = tk.StringVar()
         self.ardop_status_label = tk.Label()
         self.transport_status_frame_text = tk.StringVar()
@@ -921,10 +922,10 @@ class ARDOPCF(hamChatPlugin):
 
             try:
                 for entry in self.command_response_history:
-                    if ('PTT TRUE' in entry) or ('T T' in entry):
+                    if ('PTT TRUE' in entry):
                         self.state['ptt'] = True
                         self.host_interface.plugMgr.on_key_transmitter()
-                    elif ('PTT FALSE' in entry) or ('T F' in entry):
+                    elif ('PTT FALSE' in entry):
                         self.state['ptt'] = False
                         self.host_interface.plugMgr.on_unkey_transmitter()
                     elif entry.startswith('MYCALL'):

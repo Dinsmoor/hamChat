@@ -3,7 +3,6 @@ import os
 import importlib.util
 # assist with type hinting
 from hamChatPlugin import hamChatPlugin
-import tkinter as tk
 
 class PluginManager:
     def __init__(self, host_interface, plugin_folder='plugins'):

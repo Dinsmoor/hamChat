@@ -1,4 +1,3 @@
-import tkinter as tk
 # uncomment when you use this template to create a new plugin
 #from hamChatPlugin import hamChatPlugin
 #from typing import TYPE_CHECKING
@@ -141,7 +140,7 @@ class hamChatPlugin:
         Plugins that want to unkey the transmitter should call this method in their application code.'''
         pass
     
-    def create_plugin_frame(self, tkParent) -> tk.Frame:
+    def create_plugin_frame(self, tkParent):
         '''This method is where a plugin can create its own options buttons on the right scrollbar
         in the main application. See other plugins for examples.'''
         pass
@@ -160,7 +159,7 @@ class hamChatPlugin:
         '''
         pass
 
-    def on_ui_transport_status_frame(self, tkParent) -> tk.Frame:
+    def on_ui_transport_status_frame(self, tkParent):
         '''This method is called when the main application wants to display the transport status.
         This is where you would create a frame to display the status of your transport plugin,
         or update the tk variables that are used to display the status of your transport plugin.'''

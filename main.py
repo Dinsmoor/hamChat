@@ -1,3 +1,6 @@
+import sys
+if sys.version_info < (3, 8):
+    exit("hamChat requires Python 3.8 or higher. Please upgrade your Python version.")
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -9,11 +12,10 @@ import sys
 import socket
 
 info = """
-This program is a desktop application that allows amatuer
-radio operators to do almost whatever they want within the
-context of text or binary data transfer, via a plugin system.
+hamChat is a chat and file transfer application for amateur radio operators.
 
-This application is a work in progress and is not yet complete.
+hamChat is a work in progress, full of bugs,
+and needs a rewrite with better direction.
 
 Standard hamChat header format:
 0       1    2      3        4          5         6 (-1)
@@ -42,9 +44,9 @@ class HamChat(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.version = '0.1'
         our_hostname = socket.gethostname()
-        self.title(f"hamChat@{our_hostname}")
-        self.resizable(True, True)
+        self.title(f"hamChat on {our_hostname}")
         self.geometry("1000x650")
+        self.resizable(True, True)
         self.settings = {
             'callsign': 'N0CALL',
             'recipients': 'ALL',
@@ -117,6 +119,7 @@ class HamChat(tk.Tk):
             return
         with open('message_history.txt', 'w') as f:
             for message in self.message_history:
+                message = message.strip()
                 f.write(message+'\n')
     
     def _load_message_history(self):
