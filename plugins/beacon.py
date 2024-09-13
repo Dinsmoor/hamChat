@@ -31,6 +31,7 @@ class Beacon(hamChatPlugin):
         }
         self.enabled = tk.BooleanVar()
         self.interval = tk.IntVar()
+        self.interval.set(30)
         self.message = tk.StringVar()
         self.message.set("Beacon from hamChat!")
         self.include_interval = tk.BooleanVar()

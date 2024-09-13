@@ -15,6 +15,7 @@ else:
 
 """
 Standard hamChat header format:
+mycall my_plugin version yourcalls BEGIN my_message_or_data END
 0       1    2      3        4          5         6 (-1)
 N0CALL:chat:0.1:RECIPIENTS:BEGIN:Hello, YOURCALL!:END:
 """
@@ -151,6 +152,7 @@ class ARDOPCF(hamChatPlugin):
         }
         self._load_settings_from_file()
 
+        # on protocolchange, we query ardopcf for these settings
         self.info_commands = [
             'state',
             'protocolmode', # FEC, ARQ, RXO
@@ -383,8 +385,11 @@ class ARDOPCF(hamChatPlugin):
         try:
             with open('plugins/ardopcf_settings.json', 'r') as f:
                 self.state.update(json.load(f))
+                self.set_tnc_settings()
         except FileNotFoundError:
-            pass
+            # on first init, we need to make sure the protocolmode is at least initialized
+            # otherwise trying to send something will only load the buffer, nothing will happen
+            self.on_protocol_mode_change()
         except json.JSONDecodeError:
             os.remove('plugins/ardopcf_settings.json')
 
@@ -412,6 +417,8 @@ class ARDOPCF(hamChatPlugin):
 
     def set_tnc_settings(self):
         for command in self.info_commands:
+            if command == 'state' or command == 'buffer':
+                continue # these are read only
             command = command + ' ' + str(self.state.get(command))
             self.cmd_response(command=command, wait=False)
 
@@ -596,6 +603,8 @@ class ARDOPCF(hamChatPlugin):
         self.save_button = tk.Button(buttonframe, text="Save", command=self.on_settings_update)
         self.save_button.bind('<Return>', self.on_settings_update)
         self.save_button.pack(side=tk.BOTTOM)
+        # save settings when we close the window as well
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_update)
 
     def on_protocol_mode_change(self, *args):
         self.state['protocolmode'] = self.protocolmode_var.get()
@@ -659,7 +668,7 @@ class ARDOPCF(hamChatPlugin):
         self.cmd_response(command='STATE', wait=False)
         self.cmd_response(command='BUFFER', wait=False)
 
-    def append_bytes_to_buffer(self, data : bytes, mode: str = 'FEC'):
+    def append_bytes_to_buffer(self, data : bytes):
         # ARDOPCF is a single-threaded application, and it spends most of
         # its time processing incoming audio to decode for frames.
         # Because of this, it doesn't immediately intake new data or commands from their sockets,
@@ -673,23 +682,38 @@ class ARDOPCF(hamChatPlugin):
 
         if not self.is_ready():
             return
-        
-        modebytes = mode.encode()
+        if not data:
+            return
+    
+
         # if the data is too long, we can't send it without splitting it up
-        # 1000 seems comfortable.
+        # 1000 byte chunks seems comfortable. Every 1000 bytes seem to take about 200ms to load
+        est_rate = (len(data) / 1000) * 1.5
+        reasonable_timeout_value = int(est_rate) if int(est_rate) > 2 else 2
         for i in range(0, len(data), 1000):
             data_chunk = data[i:i+1000]
-            # every chunk of data needs to be prefixed with the FEC prefix else the TNC will ignore it
-            # this modem uses FEC mode by default for p2p chat
-            # data format is <2 bytes for length><FEQ or ARQ><data>
+            # data format is <2 bytes for length><data>
             # data should already come here with the hamChat standard header
-            data_chunk = modebytes + data_chunk
             data_length = len(data_chunk).to_bytes(2, 'big')
             data_chunk = data_length + data_chunk
             self.sock_data.sendall(data_chunk)
 
-        # hopefully the TNC will have processed the data by now :^)
-        time.sleep(0.2)
+        # wait until the TNC reports the buffer size that we tried to load
+        load_timeout = 0
+        while self.state.get('buffer') < len(data):
+            time.sleep(0.2)
+            load_timeout += 1
+            buff_report = self.cmd_response(command='BUFFER', wait=True) # Warning: this has possibility to make us miss a PTT command
+            if len(buff_report.split(' ')) > 1:
+                try:
+                    self.state['buffer'] = int(buff_report.split(' ')[1])
+                except ValueError:
+                    pass # we keep competing for time with the socket. Need to find a better way.
+            
+            if load_timeout > reasonable_timeout_value:
+                print(f"ARDOP Buffer Load Timeout (tried loading {len(data)} bytes, got {self.state.get('buffer')} bytes)")
+                break
+
         if self.host_interface.debug.get():
             print(f"ARDOP Buffer Ready: {self.state.get('buffer')} bytes.")
 
@@ -721,13 +745,11 @@ class ARDOPCF(hamChatPlugin):
         
         return(result)
 
-    # TODO: This, unfortunately, only handles FEC mode, and not ARQ mode.
-    # It would make sense to implement ARQ mode so it would be possible to send CONREQ2000M frames
     def on_get_data(self) -> bytes:
-        # This is blocking, and should run in its own thread
+        # This is blocking, and should run in its own thread or migrate everything to asyncio
+
         # This will return ONE set of frames from the TNC, marked by the :END: footer
-        # or until we see another FECFEC prefix, which means we have another data packet,
-        # Ardop MAY CHANGE how it sends this. It's rather.... undefined.
+        # or until we see another FEC/ARQ/ERR prefix, which means we have another data packet,
 
         # the smallest data frame 4FSK.200.50S will encode just 16 data bytes
         # chances are that we will not receive a full frame in one go unless 
@@ -736,15 +758,12 @@ class ARDOPCF(hamChatPlugin):
         # no matter what frame we recieved, or the order we got the frame
         # we will always get the following bytes from the beginning of the data socket:
         # 2 bytes for the length of the frame
-        # 6 bytes for the FECFEC prefix if the first frame of a series of frames (a bug?)
-        # 3 bytes for the FEC prefix if not the first frame of a series of frames
+        # 3 bytes for the prefix if not the first frame of a series of frames
 
         # we can detect if the message is over by checking if the end of the message is ':END:'
         # or if we simply stop getting data from the socket.
 
-        # if ardop gets messages and nobody reads it, it will fill up ardop's data socket buffer
-
-        # example Received data: b'K7OTR-1:chat:0.1:K7OTR:BEGIN:A much longer message, here it i\x00CFECs, here it is here it is, multiple farames fefjensfnrsribghilerb\x00\x0eFECrghbgr:END:'
+        # example received data: b'K7OTR-1:chat:0.1:K7OTR:BEGIN:A much longer message, here it i\x00CFECs, here it is here it is, multiple farames fefjensfnrsribghilerb\x00\x0eFECrghbgr:END:'
 
         # possibly an ARDOP bug here that thinks frames are duplicate when they're not: https://vscode.dev/github/Dinsmoor/ardopcf/blob/develop/ARDOPC/FEC.c#L363
 
@@ -762,22 +781,24 @@ class ARDOPCF(hamChatPlugin):
                     break
                 length = int.from_bytes(length, 'big')
                 # get the rest of this data frame
-                this_frame = self.sock_data.recv(length+3) # account for the FEC/ARQ/ERR msg prefix
+                this_frame = self.sock_data.recv(length) # https://github.com/Dinsmoor/ardopcf/blob/eab1f3165a30a0a40221a20b54f5fa1d099c2482/src/common/TCPHostInterface.c#L253-L254
                 if self.host_interface.debug.get():
                     print(f"ARDOPCF: Incoming Frame: len:{length} data:{this_frame}")
-                # remove the FECFEC and FEC prefix if it exists
-                if this_frame[:6] == b'FECFEC':
-                    this_frame = this_frame[6:]
-                elif this_frame[:3] == b'FEC':
+                # remove the prefix if it exists (we don't need it yet in this application)
+                
+                if this_frame[:3] == b'FEC':
                     this_frame = this_frame[3:]
                 elif this_frame[:3] == b'ARQ':
-                    # discard ARQ frames, we don't use them yet
-                    this_frame = b''
-                    continue
+                    this_frame = this_frame[3:]
                 elif this_frame[:3] == b'ERR':
                     # discard error frames, we don't use them yet
+                    if self.host_interface.debug.get():
+                        print(f"ARDOPCF: Error Frame: {this_frame}")
                     this_frame = b''
                     continue
+                
+                if self.host_interface.debug.get():
+                    print(f"ARDOPCF: Frame: {this_frame}")
                 data += this_frame
                 # if we encounter the end of the message, we can break,
                 # and save the rest for another iteration (ardop may group messages into one frame)
