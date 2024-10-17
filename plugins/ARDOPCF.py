@@ -150,7 +150,7 @@ class ARDOPCF(hamChatPlugin):
             'busyblock': True,
             'callbw': self.arq_bw_modes[2],
         }
-        self._load_settings_from_file()
+        
 
         # on protocolchange, we query ardopcf for these settings
         self.info_commands = [
@@ -177,7 +177,7 @@ class ARDOPCF(hamChatPlugin):
             'use600modes',
             'version',
         ]
-
+        self._load_settings_from_file()
         self.ardop_host_var = tk.StringVar()
         self.ardop_host_var.set(self.state.get('host'))
         self.ardop_port_var = tk.IntVar()
